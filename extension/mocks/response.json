@@ -1,0 +1,88 @@
+{
+  "tweet_id": "1799999999999999999",
+  "overall_verdict": "mostly_false",
+  "overall_confidence": 0.352,
+  "summary": "推文核心断言与公开数据相左：所引「全球失业率创历史新低」缺乏权威来源支撑，且与国际劳工组织最新统计矛盾；次要断言部分属实但被夸大。综合可信度偏低。",
+  "claims": [
+    {
+      "claim": {
+        "id": "c1",
+        "text": "2026 年全球失业率已降至历史最低点。",
+        "checkable": true
+      },
+      "evaluation": {
+        "claim_id": "c1",
+        "verdict": "false",
+        "confidence": 0.31,
+        "evidence": [
+          {
+            "source_url": "https://www.ilo.org/global/statistics",
+            "title": "ILO World Employment and Social Outlook 2026",
+            "snippet": "国际劳工组织数据显示 2026 年全球失业率约为 5.1%，高于 2019 年的历史低位，并未创下新低。",
+            "stance": "refutes",
+            "score": 0.92
+          },
+          {
+            "source_url": "https://example.com/viral-blog",
+            "title": "某自媒体博文",
+            "snippet": "声称失业率创新低，但未给出数据出处。",
+            "stance": "supports",
+            "score": 0.18
+          }
+        ],
+        "reasoning": "权威来源（ILO）直接否定该数字；唯一支持来源为无出处的自媒体博文，可信度低。"
+      },
+      "critique": {
+        "claim_id": "c1",
+        "approved": true,
+        "adjusted_verdict": null,
+        "adjusted_confidence": null,
+        "concerns": [
+          "支持方证据来源单一且不可溯源。",
+          "建议补充区域分项数据以排除统计口径差异。"
+        ]
+      },
+      "final_verdict": "false",
+      "final_confidence": 0.31
+    },
+    {
+      "claim": {
+        "id": "c2",
+        "text": "科技行业在过去一年新增了大量岗位。",
+        "checkable": true
+      },
+      "evaluation": {
+        "claim_id": "c2",
+        "verdict": "mixed",
+        "confidence": 0.4,
+        "evidence": [
+          {
+            "source_url": "https://www.bls.gov/news.release/empsit.htm",
+            "title": "US BLS Employment Situation",
+            "snippet": "科技相关岗位整体小幅增长，但软件业部分子领域出现裁员，净增量被夸大。",
+            "stance": "neutral",
+            "score": 0.78
+          }
+        ],
+        "reasoning": "行业整体有增长但被显著夸大，且未区分子领域涨跌，故判为真假参半。"
+      },
+      "critique": {
+        "claim_id": "c2",
+        "approved": true,
+        "adjusted_verdict": null,
+        "adjusted_confidence": null,
+        "concerns": [
+          "「大量」缺乏量化口径，存在夸大风险。"
+        ]
+      },
+      "final_verdict": "mixed",
+      "final_confidence": 0.4
+    }
+  ],
+  "processing_ms": 1840,
+  "model_versions": {
+    "claim": "claude-haiku-4-5",
+    "evaluator": "claude-sonnet-4-6",
+    "critic": "claude-sonnet-4-6"
+  }
+}

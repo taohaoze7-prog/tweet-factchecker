@@ -1,36 +1,55 @@
-# CLAUDE.md — agent-layer worktree（2 号线）
+# CLAUDE.md — Tweet FactChecker（集成主干 / main）
 
-战场：`backend/agents/`。实现 claim / evaluator / critic 三个真实 Claude agent。
+X/Twitter 推文一键事实核查：浏览器扩展抓推文 → 后端多 agent 管道核查 → 浮层展示结论。
 
-## 🚫 铁律（最高优先级）
+> 三条 worktree（frontend / agent-layer / engine-wiring）已合并回 `main`。
+> 各线的作业书保留在各自分支；本文件是集成主干的总览。
 
-**契约冻结。不许私改 `backend/contracts/models.py` 与 `backend/agents/base.py` 的签名/形状。**
-要改 → 回 `main` 过一道、三线同步后再动。这是唯一会让三个 worktree 互相打架的地方。
+## 架构
 
-## 启动
+```
+extension/  (TypeScript + Vite + MV3)        ← 1 号线 frontend
+  抓推文 → 注入「核查」按钮 → POST /factcheck → 浮层渲染结论
+        │
+        ▼
+backend/   (FastAPI + Python 3.12)
+  contracts/   共享数据契约（Pydantic）—— 冻结，与 extension/src/types.ts 镜像
+  agents/      claim / evaluator / critic   ← 2 号线 agent-layer（真实 Claude agent）
+  core.py      单断言收敛 + 聚合
+  orchestrator.py  串 claim→evaluator→critic
+  wiring.py    真实 agent 组装（USE_REAL_AGENTS=1）← 3 号线 engine-wiring
+  mocks/       固定数据 mock，零 key 联调
+  app.py       create_app(orchestrator) 工厂 + HTTP 入口
+  smoke.py     双链路集成冒烟（mock 硬门槛 + real 可选）
+```
+
+核查管道：`推文 → ClaimAgent 抽断言 → EvaluatorAgent 搜证初判 → CriticAgent 复核 → 聚合`
+模型分层：claim=`claude-haiku-4-5`，evaluator/critic=`claude-sonnet-4-6`。
+
+## 🚫 铁律
+
+**契约冻结**：`backend/contracts/models.py` 与 `extension/src/types.ts` 的形状一一对应，
+改动必须两侧同步——这是前后端唯一会漂移打架的地方。
+
+## 本地端到端
 
 ```bash
+# 后端（默认全 mock，无需 key）
 cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...     # 真实 agent 需要
-pytest                                  # 改动后必跑（mock 路径不能被你弄红）
+pytest                                                # 契约单测 + mock 链路 HTTP 集成
+python smoke.py                                       # 集成冒烟（mock）
+uvicorn app:app --reload                              # http://localhost:8000/factcheck
+
+# 接真实 Claude 链路
+USE_REAL_AGENTS=1 ANTHROPIC_API_KEY=sk-ant-... uvicorn app:app --reload
+
+# 前端
+cd ../extension
+npm install
+npm run build                                         # 产物 dist/ → Chrome 加载已解压扩展
 ```
 
-模型已在各文件钉好：claim=`claude-haiku-4-5`，evaluator/critic=`claude-sonnet-4-6`。
-SDK 用官方 `anthropic`（异步），封装见 `llm/client.py`。
-
-## ✅ Definition of Done（做完算什么）
-
-- [ ] 三个 `NotImplementedError` 全部实现：`ClaudeClaimAgent.extract` / `ClaudeEvaluatorAgent.evaluate` / `ClaudeCriticAgent.critique`
-- [ ] 用 **structured outputs**（`messages.parse` + Pydantic 契约对象）返回结果，**不手撸 JSON 字符串匹配**
-- [ ] `evaluator` 每条 `Evidence` 必带 `source_url`；联网搜证用 `web_search` 工具
-- [ ] `critic` 不认可时必给 `adjusted_verdict` + `concerns`；认可时 `concerns` 可空
-- [ ] 三个 agent 都满足 `agents/base.py` 的 Protocol（`isinstance(x, ClaimAgent)` 通过 / orchestrator 可直接注入）
-- [ ] 各 agent 有单测（对 Claude 调用打桩），且**不破坏 `mocks/` 路径**与现有 `pytest`
-- [ ] 合并回 `main` 前：`USE_REAL_AGENTS=1 uvicorn app:app` 能对一条真实推文返回合规 `FactCheckResult`
-
-## 集成约定（4 号位）
-
-`wiring.py` 已把你的三个 agent 接好（engine-wiring 交付）——你只管把方法体填实，接线不用碰。
-契约变更一律走 `main`。
+扩展默认 `USE_MOCK=false`（`extension/src/api.ts`），直接打 `http://localhost:8000/factcheck`；
+无后端时把 `USE_MOCK` 置 `true`，用 `extension/mocks/response.json` 离线渲染。
