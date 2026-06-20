@@ -37,9 +37,11 @@ git worktree add ../factchecker-engine-wiring -b engine-wiring  # backend/orches
 
 ## 本地运行（全 mock，无需 API key）
 
+> **Python 钉死 3.12**（三线统一，避免 3.9 的 `X | None` / Pydantic 建类炸裂）。
+
 ```bash
 cd backend
-python3 -m venv .venv && source .venv/bin/activate
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app:app --reload          # http://localhost:8000/factcheck
 pytest                            # 契约 + 管道冒烟测试

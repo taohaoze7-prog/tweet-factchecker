@@ -1,3 +1,5 @@
+# 需要 Python >= 3.12（三线统一，消灭 3.9 的 `X | None` / Pydantic 建类炸裂问题）
+# 每条线第一步：python3.12 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
 anthropic>=0.69
 fastapi>=0.115
 uvicorn[standard]>=0.32
