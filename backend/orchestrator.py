@@ -12,7 +12,7 @@ from typing import Optional
 
 from agents.base import ClaimAgent, EvaluatorAgent, CriticAgent
 from contracts.models import FactCheckRequest, FactCheckResult, Verdict
-from core import aggregate, check_claim
+from core import aggregate, safe_check_claim
 
 
 class Orchestrator:
@@ -38,8 +38,9 @@ class Orchestrator:
         checkable = [c for c in claims if c.checkable]
 
         # 各断言相互独立 → 并行评估，缩短端到端时延。
+        # safe_check_claim：单条超时/异常一律降级为 UNVERIFIABLE，绝不拖垮整条推文。
         results = await asyncio.gather(
-            *(check_claim(c, self._evaluator, self._critic) for c in checkable)
+            *(safe_check_claim(c, self._evaluator, self._critic) for c in checkable)
         )
 
         overall, confidence, summary = aggregate(request.tweet_id, list(results))

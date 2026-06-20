@@ -16,6 +16,7 @@ from contracts.models import (
     Claim,
     Critique,
     Evaluation,
+    FactCheckRequest,
     FactCheckResult,
     Verdict,
 )
@@ -54,6 +55,37 @@ def test_aggregate_all_unverifiable() -> None:
     overall, conf, _ = aggregate("t1", [])
     assert overall == Verdict.UNVERIFIABLE
     assert conf == 0.0
+
+
+# ─────────────────── 容错：单条 agent 抛错不拖垮整条推文 ───────────────────
+
+@pytest.mark.asyncio
+async def test_orchestrator_degrades_on_agent_failure() -> None:
+    """evaluator 抛异常 → 该 claim 降级为 UNVERIFIABLE，请求不崩。"""
+    from mocks import MockClaimAgent, MockCriticAgent
+    from orchestrator import Orchestrator
+
+    class BoomEvaluator:
+        async def evaluate(self, claim):  # noqa: ANN001
+            raise RuntimeError("模拟 evaluator 炸了")
+
+    orch = Orchestrator(
+        claim_agent=MockClaimAgent(),
+        evaluator=BoomEvaluator(),
+        critic=MockCriticAgent(),
+        model_versions={"claim": "mock", "evaluator": "boom", "critic": "mock"},
+    )
+    result = await orch.check(
+        FactCheckRequest(tweet_id="t-boom", text="地球是圆的。月球绕地球转。")
+    )
+    # 没有抛异常 = 整条请求存活
+    assert result.tweet_id == "t-boom"
+    assert result.claims, "降级也应有 claim 结果"
+    # 每条都降级为 UNVERIFIABLE，置信度 0
+    for cr in result.claims:
+        assert cr.final_verdict == Verdict.UNVERIFIABLE
+        assert cr.final_confidence == 0.0
+        assert cr.critique.concerns, "降级应留下原因"
 
 
 # ─────────────────────── 集成：mock 链路过 HTTP ───────────────────────

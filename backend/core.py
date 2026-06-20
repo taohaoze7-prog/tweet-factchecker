@@ -87,3 +87,54 @@ async def check_claim(
     evaluation = await evaluator.evaluate(claim)
     critique = await critic.critique(claim, evaluation)
     return resolve_claim(claim, evaluation, critique)
+
+
+# 单条断言评估的默认超时（秒）。真实 evaluator 是两段式联网搜证 + critic，
+# 共 3 次 sonnet 往返/条，慢但有效。超时只兜病态卡死，不该砍正常联网——给足余量。
+CLAIM_TIMEOUT_S: float = 300.0
+
+
+def degraded_result(claim: Claim, reason: str) -> ClaimResult:
+    """把单条断言降级为 UNVERIFIABLE。
+
+    管道内某条 claim 评估失败 / 超时时调用——降级该条，绝不拖垮整条推文。
+    """
+    evaluation = Evaluation(
+        claim_id=claim.id,
+        verdict=Verdict.UNVERIFIABLE,
+        confidence=0.0,
+        evidence=[],
+        reasoning=f"评估未完成，降级为无法核实：{reason}",
+    )
+    critique = Critique(
+        claim_id=claim.id,
+        approved=True,
+        concerns=[f"管道异常降级：{reason}"],
+    )
+    return ClaimResult(
+        claim=claim,
+        evaluation=evaluation,
+        critique=critique,
+        final_verdict=Verdict.UNVERIFIABLE,
+        final_confidence=0.0,
+    )
+
+
+async def safe_check_claim(
+    claim: Claim,
+    evaluator: EvaluatorAgent,
+    critic: CriticAgent,
+    timeout: float = CLAIM_TIMEOUT_S,
+) -> ClaimResult:
+    """check_claim 的容错包装：超时 / 异常一律降级，**绝不向上抛**。
+
+    保证 orchestrator 的并行 gather 里任何单条失败都不会让整条请求 500。
+    """
+    try:
+        return await asyncio.wait_for(
+            check_claim(claim, evaluator, critic), timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        return degraded_result(claim, f"评估超时（>{timeout:.0f}s）")
+    except Exception as exc:  # noqa: BLE001 — 顶层兜底，降级而非中断
+        return degraded_result(claim, f"{type(exc).__name__}: {exc}")
