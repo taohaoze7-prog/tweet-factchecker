@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contracts.models import FactCheckRequest, FactCheckResult
 from mocks import build_mock_orchestrator
 from orchestrator import Orchestrator
+from wiring import build_real_orchestrator
 
 app = FastAPI(title="Tweet FactChecker", version="0.1.0")
 
@@ -29,11 +30,11 @@ app.add_middleware(
 def get_orchestrator() -> Orchestrator:
     """编排器工厂。
 
-    USE_REAL_AGENTS=1 时切换到真实 Claude agent（engine-wiring 落地后实现）。
+    USE_REAL_AGENTS=1 时切换到真实 Claude agent（接线见 wiring.py）。
+    默认走全 mock，无需 API key 即可起服务联调。
     """
     if os.getenv("USE_REAL_AGENTS") == "1":
-        # TODO(engine-wiring): 组装 ClaudeClaimAgent / ClaudeEvaluatorAgent / ClaudeCriticAgent
-        raise NotImplementedError("真实 agent 组装待 engine-wiring 实现")
+        return build_real_orchestrator()
     return build_mock_orchestrator()
 
 
