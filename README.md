@@ -44,7 +44,17 @@ cd backend
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app:app --reload          # http://localhost:8000/factcheck
-pytest                            # 契约 + 管道冒烟测试
+pytest                            # 契约单测 + mock 链路 HTTP 集成测试
+python smoke.py                   # 集成冒烟（双链路）：mock 始终跑，real 需 key
+```
+
+### 集成冒烟（双链路）
+
+三线合并回 `main` 后一键验证，过真实 HTTP 表面（ASGI）：
+
+```bash
+python smoke.py                                              # 仅 mock（硬门槛）
+USE_REAL_AGENTS=1 ANTHROPIC_API_KEY=sk-... python smoke.py  # mock + real
 
 cd ../extension
 npm install
