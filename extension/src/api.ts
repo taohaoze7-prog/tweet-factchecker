@@ -5,7 +5,7 @@
 // 杜绝"忘了改 const 把假数据发上线"的隐患。
 
 import type { FactCheckRequest, FactCheckResult } from "./types";
-import { parseSSE, type StreamEvent } from "./stream";
+import { type StreamEvent } from "./stream";
 import mockResponse from "../mocks/response.json";
 
 const BACKEND_URL = "http://localhost:8000";
@@ -50,19 +50,49 @@ export async function factCheck(
   return USE_MOCK ? factCheckMock(req) : factCheckRemote(req);
 }
 
-/** 真实后端流式调用：POST /factcheck/stream，逐条吐出 StreamEvent。*/
+/** 真实后端流式调用：经 background service worker 代理（绕过 X 的 CSP）。
+ *  worker 用扩展权限 fetch，再把 SSE 事件通过 port 逐条转发回来。*/
 async function* factCheckStreamRemote(
   req: FactCheckRequest
 ): AsyncGenerator<StreamEvent> {
-  const resp = await fetch(`${BACKEND_URL}/factcheck/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
+  const port = chrome.runtime.connect({ name: "factcheck" });
+  const queue: StreamEvent[] = [];
+  let wake: (() => void) | null = null;
+  let finished = false;
+  let failure: string | null = null;
+
+  const pump = (): void => {
+    wake?.();
+    wake = null;
+  };
+  port.onMessage.addListener(
+    (msg: { type: string; event?: StreamEvent; message?: string }) => {
+      if (msg.type === "event" && msg.event) queue.push(msg.event);
+      else if (msg.type === "end") finished = true;
+      else if (msg.type === "error") {
+        failure = msg.message ?? "未知错误";
+        finished = true;
+      }
+      pump();
+    }
+  );
+  port.onDisconnect.addListener(() => {
+    finished = true;
+    pump();
   });
-  if (!resp.ok) {
-    throw new Error(`factcheck stream failed: ${resp.status}`);
+
+  port.postMessage({ type: "request", request: req });
+
+  try {
+    for (;;) {
+      while (queue.length) yield queue.shift() as StreamEvent;
+      if (failure) throw new Error(failure);
+      if (finished) return;
+      await new Promise<void>((r) => (wake = r));
+    }
+  } finally {
+    port.disconnect();
   }
-  yield* parseSSE(resp);
 }
 
 /** Mock 流式：从固定假数据合成 claims → claim×N → done 事件序列。*/
