@@ -16,7 +16,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from agents._structured import extract_structured
+from agents._structured import parse_structured
 from contracts.models import Claim, Critique, Evaluation, Verdict
 from llm.client import ClaudeClient
 
@@ -123,13 +123,11 @@ class ClaudeCriticAgent:
             f"断言：\n{claim.text}\n\n"
             f"评估员的初判：\n{_format_evaluation(evaluation)}"
         )
-        return await extract_structured(
+        return await parse_structured(
             self._client.raw,
             model=MODEL,
             system=_SYSTEM,
             user=user,
             schema=_CritiqueDraft,
-            tool_name="record_critique",
-            tool_description="登记对评估员初判的独立复核结论。",
             max_tokens=2048,
         )

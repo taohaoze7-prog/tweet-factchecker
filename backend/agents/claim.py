@@ -17,7 +17,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from agents._structured import extract_structured
+from agents._structured import parse_structured
 from contracts.models import Claim
 from llm.client import ClaudeClient
 
@@ -58,10 +58,12 @@ class ClaudeClaimAgent:
     async def extract(self, text: str, lang: Optional[str] = None) -> list[Claim]:
         drafts = await self._extract_drafts(text, lang)
 
+        # 先过滤空串，再连号编 id —— 保证 id 连续无缺口（c1/c2/c3…），
+        # 避免「过滤掉中间空草稿后 id 跳号」给下游造成困惑。
+        kept = [d for d in drafts if d.text and d.text.strip()]
         claims = [
             Claim(id=f"c{i + 1}", text=d.text.strip(), checkable=d.checkable)
-            for i, d in enumerate(drafts)
-            if d.text and d.text.strip()
+            for i, d in enumerate(kept)
         ]
 
         # 兜底：模型未抽到任何断言时，把整条推文当作一条待核查断言，
@@ -74,14 +76,12 @@ class ClaudeClaimAgent:
         self, text: str, lang: Optional[str]
     ) -> list[_ClaimDraft]:
         hint = f"\n（推文语言提示：{lang}）" if lang else ""
-        parsed = await extract_structured(
+        parsed = await parse_structured(
             self._client.raw,
             model=MODEL,
             system=_SYSTEM,
             user=f"推文：\n{text}{hint}",
             schema=_ClaimList,
-            tool_name="record_claims",
-            tool_description="登记从推文中抽取出的可核查断言列表。",
             max_tokens=1024,
         )
         return list(parsed.claims) if parsed is not None else []
