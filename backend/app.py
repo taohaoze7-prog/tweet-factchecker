@@ -14,14 +14,14 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from cache import CachingChecker, Checker, ResultCache
 from contracts.models import FactCheckRequest, FactCheckResult
 from mocks import build_mock_orchestrator
-from orchestrator import Orchestrator
 from wiring import build_real_orchestrator
 
 
-def create_app(orchestrator: Orchestrator) -> FastAPI:
-    """用指定编排器组装 FastAPI app。"""
+def create_app(orchestrator: Checker) -> FastAPI:
+    """用指定编排器组装 FastAPI app（任意满足 Checker 协议者，含缓存包装）。"""
     app = FastAPI(title="Tweet FactChecker", version="0.1.0")
 
     # 浏览器扩展 content script 跨域调用 → 放开 CORS（生产应收紧来源）。
@@ -44,16 +44,17 @@ def create_app(orchestrator: Orchestrator) -> FastAPI:
     return app
 
 
-def get_orchestrator() -> Orchestrator:
-    """编排器工厂。
+def get_orchestrator() -> Checker:
+    """编排器工厂（外层套结果缓存）。
 
     USE_REAL_AGENTS=1 时切换到真实 Claude agent（接线见 wiring.py）。
     默认走全 mock，无需 API key 即可起服务联调。
+    结果缓存只省重复推文的重复计算，不影响判定质量；TTL 由 CACHE_TTL_S 调（默认 1h）。
     """
-    if os.getenv("USE_REAL_AGENTS") == "1":
-        return build_real_orchestrator()
-    return build_mock_orchestrator()
+    inner = build_real_orchestrator() if os.getenv("USE_REAL_AGENTS") == "1" else build_mock_orchestrator()
+    ttl = float(os.getenv("CACHE_TTL_S", "3600"))
+    return CachingChecker(inner, ResultCache(ttl_s=ttl))
 
 
-# uvicorn app:app 入口（按 USE_REAL_AGENTS 选链路）。
+# uvicorn app:app 入口（按 USE_REAL_AGENTS 选链路 + 结果缓存）。
 app = create_app(get_orchestrator())

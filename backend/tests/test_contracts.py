@@ -88,6 +88,60 @@ async def test_orchestrator_degrades_on_agent_failure() -> None:
         assert cr.critique.concerns, "降级应留下原因"
 
 
+# ─────────────────── 缓存：重复推文复用结论，不重跑管道 ───────────────────
+
+@pytest.mark.asyncio
+async def test_caching_checker_hit_miss_and_tweet_id_backfill() -> None:
+    from cache import CachingChecker, ResultCache
+    from mocks import build_mock_orchestrator
+
+    calls = {"n": 0}
+    inner = build_mock_orchestrator()
+    _orig = inner.check
+
+    async def counting_check(req):  # noqa: ANN001 — 计数包装
+        calls["n"] += 1
+        return await _orig(req)
+
+    inner.check = counting_check  # type: ignore[method-assign]
+    checker = CachingChecker(inner, ResultCache(ttl_s=60))
+
+    r1 = await checker.check(FactCheckRequest(tweet_id="a", text="同一条推文。"))
+    r2 = await checker.check(FactCheckRequest(tweet_id="b", text="同一条推文。"))
+    r3 = await checker.check(FactCheckRequest(tweet_id="c", text="另一条推文。"))
+
+    # 同文本第二次命中缓存 → 内层只被调了 2 次（a、c），b 命中
+    assert calls["n"] == 2
+    # 命中也要回填当前请求的 tweet_id，不能带出别条的 id
+    assert r1.tweet_id == "a"
+    assert r2.tweet_id == "b"
+    assert r3.tweet_id == "c"
+    # 内容一致（同文本同结论）
+    assert r2.overall_verdict == r1.overall_verdict
+
+
+@pytest.mark.asyncio
+async def test_caching_checker_ttl_expiry() -> None:
+    from cache import CachingChecker, ResultCache
+    from mocks import build_mock_orchestrator
+
+    calls = {"n": 0}
+    inner = build_mock_orchestrator()
+    _orig = inner.check
+
+    async def counting_check(req):  # noqa: ANN001
+        calls["n"] += 1
+        return await _orig(req)
+
+    inner.check = counting_check  # type: ignore[method-assign]
+    checker = CachingChecker(inner, ResultCache(ttl_s=0.0))  # 立即过期
+
+    await checker.check(FactCheckRequest(tweet_id="a", text="x。"))
+    await checker.check(FactCheckRequest(tweet_id="a", text="x。"))
+    # TTL=0 → 每次都过期 miss → 内层被调 2 次
+    assert calls["n"] == 2
+
+
 # ─────────────────────── 集成：mock 链路过 HTTP ───────────────────────
 
 @pytest.mark.asyncio
