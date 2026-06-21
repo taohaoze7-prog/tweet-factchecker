@@ -1,16 +1,16 @@
-// 后端 HTTP 契约调用。frontend worktree 在此对接 POST /factcheck。
+// 后端 HTTP 契约调用。POST /factcheck。
 //
-// 当前阶段：后端未就绪，USE_MOCK=true 时直接返回 mocks/response.json，
-// 但仍保留完整的「打包请求 → 异步返回 FactCheckResult」管道，
-// 后端落地后把 USE_MOCK 置 false 即可无缝切到真实接口。
+// 默认打真实后端。本地离线开发用 `VITE_USE_MOCK=true npm run build`，
+// 直接返回 mocks/response.json，无需起后端。上线构建不带该 env → 自动走真接口，
+// 杜绝"忘了改 const 把假数据发上线"的隐患。
 
 import type { FactCheckRequest, FactCheckResult } from "./types";
 import mockResponse from "../mocks/response.json";
 
 const BACKEND_URL = "http://localhost:8000";
 
-// 联调阶段开关：true=假数据，false=打真实后端。
-const USE_MOCK = false;
+// 构建期开关（Vite 静态注入）：仅 VITE_USE_MOCK=true 时走假数据，缺省=打真后端。
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
 // 模拟后端往返耗时，让"核查中…"状态可见。
 const MOCK_LATENCY_MS = 600;
 

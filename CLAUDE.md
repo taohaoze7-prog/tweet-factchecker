@@ -51,5 +51,6 @@ npm install
 npm run build                                         # 产物 dist/ → Chrome 加载已解压扩展
 ```
 
-扩展默认 `USE_MOCK=false`（`extension/src/api.ts`），直接打 `http://localhost:8000/factcheck`；
-无后端时把 `USE_MOCK` 置 `true`，用 `extension/mocks/response.json` 离线渲染。
+扩展默认打 `http://localhost:8000/factcheck`（`extension/src/api.ts`）。
+本地离线开发用 `VITE_USE_MOCK=true npm run build`，走 `extension/mocks/response.json` 假数据；
+上线构建不带该 env → 自动真接口（Vite 构建期静态注入，杜绝忘改 const 把假数据发上线）。
