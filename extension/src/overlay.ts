@@ -347,6 +347,8 @@ export class FactCard {
   private readonly claimsBox: HTMLElement;
   private readonly foot: HTMLElement;
   private readonly rows = new Map<string, HTMLElement>();
+  private startedAt = 0;
+  private tick: number | undefined;
 
   constructor(anchor: HTMLElement) {
     // 去掉本推文已有的卡（紧随 article 的兄弟节点），避免重复
@@ -419,13 +421,28 @@ export class FactCard {
     anchor.insertAdjacentElement("afterend", this.host);
 
     this.timing = metaSpan;
+
+    // 实时秒表：让长时间核查（冷启动可达 1–2 分钟）看得见在动，而非冻住
+    this.startedAt = performance.now();
+    this.timing.textContent = "◷ 0s";
+    this.tick = window.setInterval(() => {
+      const s = Math.floor((performance.now() - this.startedAt) / 1000);
+      this.timing.textContent = `◷ ${s}s`;
+    }, 1000);
   }
 
   private readonly timing: HTMLElement;
 
+  private stopTick(): void {
+    if (this.tick !== undefined) {
+      clearInterval(this.tick);
+      this.tick = undefined;
+    }
+  }
+
   setClaims(claims: Claim[]): void {
     this.note.textContent = claims.length
-      ? `核查 ${claims.length} 条断言…`
+      ? `正在联网搜证 ${claims.length} 条断言…`
       : "未发现可核查断言。";
     this.claimsBox.replaceChildren();
     this.rows.clear();
@@ -446,6 +463,7 @@ export class FactCard {
   }
 
   finalize(result: FactCheckResult): void {
+    this.stopTick();
     const v = result.overall_verdict;
     const color = VERDICT_COLOR[v];
     this.wrap.style.setProperty("--accent", color);
@@ -504,6 +522,7 @@ export class FactCard {
   }
 
   error(err: unknown): void {
+    this.stopTick();
     this.wrap.style.setProperty("--accent", VERDICT_COLOR.false);
     this.fc.classList.add("error");
     const msg = document.createElement("div");

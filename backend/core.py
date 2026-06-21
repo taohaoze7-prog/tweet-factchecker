@@ -89,9 +89,9 @@ async def check_claim(
     return resolve_claim(claim, evaluation, critique)
 
 
-# 单条断言评估的默认超时（秒）。真实 evaluator 是两段式联网搜证 + critic，
-# 共 3 次 sonnet 往返/条，慢但有效。超时只兜病态卡死，不该砍正常联网——给足余量。
-CLAIM_TIMEOUT_S: float = 300.0
+# 单条断言评估的默认超时（秒）。真实 evaluator 是两段式联网搜证 + critic。
+# 150s 足够正常联网核查一条，又能在病态卡死时及时降级（避免单条拖满数分钟）。
+CLAIM_TIMEOUT_S: float = 150.0
 
 
 def degraded_result(claim: Claim, reason: str) -> ClaimResult:

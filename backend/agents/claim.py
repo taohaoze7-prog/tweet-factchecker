@@ -64,10 +64,9 @@ class ClaudeClaimAgent:
             if d.text and d.text.strip()
         ]
 
-        # 兜底：模型未抽到任何断言时，把整条推文当作一条待核查断言，
-        # 与 MockClaimAgent 行为一致，保证下游有内容可走。
-        if not claims:
-            return [Claim(id="c1", text=text.strip() or text, checkable=True)]
+        # 模型未抽到可核查断言（纯表态/问候/观点，如 "Great"）→ 返回空（可能为空）。
+        # 上层会秒回"无可核查断言"。绝不把非断言硬造成 checkable 塞进昂贵的搜证管道
+        # ——那正是 "Great" 卡满 300s 超时的根因。
         return claims
 
     async def _extract_drafts(
