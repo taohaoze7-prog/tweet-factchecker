@@ -1,7 +1,7 @@
 // Content script：抓推文 + 注入"核查"按钮 + 触发浮层。
 // frontend worktree 的主战场。
 
-import { factCheckStream } from "./api";
+import { factCheckStream, IS_MOCK, BACKEND } from "./api";
 import { FactCard } from "./overlay";
 import type { FactCheckRequest } from "./types";
 
@@ -143,5 +143,7 @@ function observe(): void {
   scan(); // 首屏已渲染的推文
 }
 
-log("content script 已加载，开始监听时间线");
+log(
+  `content script 已加载 · 模式=${IS_MOCK ? "MOCK(假数据)" : "REAL→" + BACKEND} · 开始监听`
+);
 observe();

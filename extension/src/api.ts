@@ -12,6 +12,10 @@ const BACKEND_URL = "http://localhost:8000";
 
 // 构建期开关（Vite 静态注入）：仅 VITE_USE_MOCK=true 时走假数据，缺省=打真后端。
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
+
+// 诊断：让 content script 启动时能打出当前包是 mock 还是 real。
+export const IS_MOCK = USE_MOCK;
+export const BACKEND = BACKEND_URL;
 // 模拟后端往返耗时，让"核查中…"状态可见。
 const MOCK_LATENCY_MS = 600;
 
