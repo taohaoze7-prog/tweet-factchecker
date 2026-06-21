@@ -2,7 +2,7 @@
 // frontend worktree 的主战场。
 
 import { factCheckStream } from "./api";
-import { injectStyles, ProgressOverlay, renderError } from "./overlay";
+import { FactCard } from "./overlay";
 import type { FactCheckRequest } from "./types";
 
 const BUTTON_CLASS = "fc-check-btn";
@@ -56,6 +56,25 @@ function findActionBar(article: HTMLElement): HTMLElement {
   );
 }
 
+/** 行内样式按钮（不依赖全局样式表，杜绝污染 X）。*/
+function styleButton(btn: HTMLButtonElement): void {
+  const s = btn.style;
+  s.cursor = "pointer";
+  s.border = "1px solid rgba(63,224,138,0.35)";
+  s.background = "rgba(63,224,138,0.08)";
+  s.color = "#3fe08a";
+  s.borderRadius = "999px";
+  s.padding = "2px 12px";
+  s.fontSize = "13px";
+  s.fontWeight = "600";
+  s.marginLeft = "8px";
+  s.lineHeight = "1.5";
+  s.fontFamily = "-apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  s.transition = "background .15s ease";
+  btn.onmouseenter = () => (s.background = "rgba(63,224,138,0.16)");
+  btn.onmouseleave = () => (s.background = "rgba(63,224,138,0.08)");
+}
+
 /** 给一个推文节点注入核查按钮。*/
 function injectButton(article: HTMLElement): void {
   if (article.querySelector(`.${BUTTON_CLASS}`)) return; // 防重复注入
@@ -64,28 +83,32 @@ function injectButton(article: HTMLElement): void {
   btn.className = BUTTON_CLASS;
   btn.type = "button";
   btn.textContent = "✓ 核查";
+  styleButton(btn);
   btn.addEventListener("click", async (e) => {
     e.preventDefault();
     e.stopPropagation();
     const req = extractTweet(article);
     if (!req) return;
     btn.disabled = true;
+    btn.style.opacity = "0.6";
     btn.textContent = "核查中…";
-    const progress = new ProgressOverlay(article);
+    const card = new FactCard(article);
     try {
       // 渐进消费：claims 出骨架 → 每条 claim 填行 → done 换最终卡片。
       for await (const event of factCheckStream(req)) {
-        if (event.type === "claims") progress.setClaims(event.claims);
-        else if (event.type === "claim") progress.resolveClaim(event.result);
-        else if (event.type === "done") progress.finalize(event.result);
+        if (event.type === "claims") card.setClaims(event.claims);
+        else if (event.type === "claim") card.resolveClaim(event.result);
+        else if (event.type === "done") card.finalize(event.result);
         else if (event.type === "error") throw new Error(event.message);
       }
       btn.textContent = "✓ 已核查";
+      btn.style.opacity = "1";
     } catch (err) {
       console.error("[factchecker]", err);
-      renderError(article, err);
+      card.error(err);
       btn.textContent = "✗ 重试";
       btn.disabled = false;
+      btn.style.opacity = "1";
     }
   });
 
@@ -109,5 +132,4 @@ function observe(): void {
   scan(); // 首屏已渲染的推文
 }
 
-injectStyles();
 observe();
