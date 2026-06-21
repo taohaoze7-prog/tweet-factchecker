@@ -47,6 +47,25 @@ function pct(conf: number): number {
   return Math.round(Math.max(0, Math.min(1, conf)) * 100);
 }
 
+function prefersReduced(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    !!window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+/** easeOutCubic 补间，rAF 驱动；onUpdate 收到 0→1 的进度。*/
+function tween(duration: number, onUpdate: (eased: number) => void): void {
+  const start = performance.now();
+  const frame = (now: number): void => {
+    const p = Math.min(1, (now - start) / duration);
+    onUpdate(1 - Math.pow(1 - p, 3));
+    if (p < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
 /** 读 X 的正文背景亮度判明暗（X 主题独立于系统主题）。*/
 function detectTheme(): "dark" | "light" {
   try {
@@ -88,7 +107,7 @@ const CARD_CSS = `
 }
 * { box-sizing: border-box; }
 
-.fc-wrap { position: relative; margin: 14px 0 6px; }
+.fc-wrap { position: relative; margin: 14px 0 6px; animation: fcCardIn .42s cubic-bezier(.2,.7,.2,1) both; }
 .fc-glow {
   position: absolute; inset: -2px -10px -30px; border-radius: 26px; z-index: 0;
   filter: blur(40px); opacity: .45; pointer-events: none;
@@ -128,7 +147,7 @@ const CARD_CSS = `
 .gauge .val {
   fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round;
   filter: drop-shadow(0 0 5px var(--accent));
-  transition: stroke-dasharray .7s cubic-bezier(.2,.7,.2,1), stroke .5s ease;
+  transition: stroke .5s ease;
 }
 .gauge .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .gauge .center .n { font-family: var(--display); font-weight: 400; font-size: 38px; line-height: .9; letter-spacing: -.02em; color: var(--ink); }
@@ -182,13 +201,21 @@ const CARD_CSS = `
 @keyframes fcpulse { 0%,100% { opacity: .35; } 50% { opacity: .85; } }
 .gauge.loading .center .n { color: var(--ink-3); animation: fcpulse 1.3s ease-in-out infinite; }
 
+/* 入场 / 逐条落定 */
+.fc-claim.resolve { animation: fcClaimIn .42s cubic-bezier(.2,.7,.2,1) both; }
+.fc-claim.resolve .fc-tag { animation: fcTagPop .42s .06s cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes fcCardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fcClaimIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fcTagPop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+
 /* 错误态 */
 .fc.error { border-color: ${VERDICT_COLOR.false}; }
 .fc .fc-err { padding: 16px 20px; color: ${VERDICT_COLOR.false}; font-size: 13px; }
 
 @media (prefers-reduced-motion: reduce) {
   .fc-glow, .fc-edge, .fc-verdict, .gauge .val, .fc-mast .brand .mark { transition: none; }
-  .fc-skel, .gauge.loading .center .n { animation: none; }
+  .fc-skel, .gauge.loading .center .n,
+  .fc-wrap, .fc-claim.resolve, .fc-claim.resolve .fc-tag { animation: none; }
 }
 `;
 
@@ -404,6 +431,7 @@ export class FactCard {
 
   resolveClaim(cr: ClaimResult): void {
     const filled = buildClaimRow(cr);
+    filled.classList.add("resolve"); // 落定动效（reduced-motion 下自动停用）
     const row = this.rows.get(cr.claim.id);
     if (row) row.replaceWith(filled);
     else this.claimsBox.appendChild(filled);
@@ -415,9 +443,26 @@ export class FactCard {
     const color = VERDICT_COLOR[v];
     this.wrap.style.setProperty("--accent", color);
 
+    // 仪表弧描边 + 可信分 count-up（招牌时刻）
+    const conf = result.overall_confidence;
+    const target = pct(conf);
+    const reduced = prefersReduced();
     this.gauge.className = "gauge";
-    this.gauge.innerHTML = gaugeSVG(result.overall_confidence);
-    this.gauge.appendChild(gaugeCenter(String(pct(result.overall_confidence)), "%"));
+    this.gauge.innerHTML = gaugeSVG(reduced ? conf : 0);
+    const center = gaugeCenter(reduced ? String(target) : "0", "%");
+    this.gauge.appendChild(center);
+    if (!reduced) {
+      const val = this.gauge.querySelector(".val");
+      const numNode = center.querySelector(".n")?.firstChild ?? null;
+      tween(820, (e) => {
+        if (val)
+          val.setAttribute(
+            "stroke-dasharray",
+            `${(conf * e * RING_C).toFixed(1)} ${RING_C.toFixed(2)}`
+          );
+        if (numNode) numNode.textContent = String(Math.round(target * e));
+      });
+    }
 
     this.verdict.textContent = VERDICT_LABEL[v];
     this.verdictEn.textContent = VERDICT_EN[v];
