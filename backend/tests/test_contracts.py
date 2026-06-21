@@ -14,13 +14,14 @@ import pytest
 from app import create_app
 from contracts.models import (
     Claim,
+    ClaimResult,
     Critique,
     Evaluation,
     FactCheckRequest,
     FactCheckResult,
     Verdict,
 )
-from core import aggregate, resolve_claim
+from core import aggregate, degraded_result, resolve_claim
 from mocks import build_mock_orchestrator
 
 
@@ -55,6 +56,39 @@ def test_aggregate_all_unverifiable() -> None:
     overall, conf, _ = aggregate("t1", [])
     assert overall == Verdict.UNVERIFIABLE
     assert conf == 0.0
+
+
+def _verified(cid: str, verdict: Verdict, conf: float) -> "ClaimResult":
+    """构造一条「已核实」的 ClaimResult（critic 认可初判）。"""
+    return resolve_claim(
+        Claim(id=cid, text="x", checkable=True),
+        Evaluation(claim_id=cid, verdict=verdict, confidence=conf, reasoning="r"),
+        Critique(claim_id=cid, approved=True),
+    )
+
+
+def test_aggregate_summary_exposes_unverified_coverage() -> None:
+    """混合场景：整体判定只看已核实，但未核实数必须在 summary 里点明。"""
+    results = [
+        _verified("c1", Verdict.TRUE, 0.9),
+        degraded_result(Claim(id="c2", text="y", checkable=True), "超时"),
+        degraded_result(Claim(id="c3", text="z", checkable=True), "异常"),
+    ]
+    overall, conf, summary = aggregate("t1", results)
+    assert overall == Verdict.TRUE          # 仅基于 c1
+    assert conf == 0.9                       # 未核实的不拉低均值
+    assert "共 3 条" in summary
+    assert "1 条已核实" in summary
+    assert "2 条无法核实" in summary         # 透明化：不再被头部一笔带过
+
+
+def test_aggregate_summary_all_unverifiable_with_claims() -> None:
+    """有断言但全军覆没：话术区别于「压根没断言」。"""
+    results = [degraded_result(Claim(id="c1", text="x", checkable=True), "超时")]
+    overall, conf, summary = aggregate("t1", results)
+    assert overall == Verdict.UNVERIFIABLE
+    assert conf == 0.0
+    assert "共 1 条断言，均无法核实" in summary
 
 
 # ─────────────────── 容错：单条 agent 抛错不拖垮整条推文 ───────────────────
