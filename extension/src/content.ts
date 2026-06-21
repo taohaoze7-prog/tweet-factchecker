@@ -8,6 +8,12 @@ import type { FactCheckRequest } from "./types";
 const BUTTON_CLASS = "fc-check-btn";
 const PROCESSED_ATTR = "data-fc-processed";
 
+// 实战调试期诊断开关：开发者工具 Console 可见注入情况。稳定后置 false。
+const DEBUG = true;
+const log = (...a: unknown[]): void => {
+  if (DEBUG) console.info("[factchecker]", ...a);
+};
+
 /** 从 X/Twitter status 链接里解析 tweet_id（/<user>/status/<id>）。*/
 function extractTweetId(article: HTMLElement): string | null {
   const links = article.querySelectorAll<HTMLAnchorElement>('a[href*="/status/"]');
@@ -117,12 +123,17 @@ function injectButton(article: HTMLElement): void {
 
 /** 扫描当前 DOM 里所有未处理的推文并注入按钮。*/
 function scan(): void {
-  document
-    .querySelectorAll<HTMLElement>('article:not([' + PROCESSED_ATTR + "])")
-    .forEach((article) => {
-      article.setAttribute(PROCESSED_ATTR, "1");
-      injectButton(article);
-    });
+  const fresh = document.querySelectorAll<HTMLElement>(
+    'article:not([' + PROCESSED_ATTR + "])"
+  );
+  let injected = 0;
+  fresh.forEach((article) => {
+    article.setAttribute(PROCESSED_ATTR, "1");
+    const before = article.querySelector(`.${BUTTON_CLASS}`);
+    injectButton(article);
+    if (!before && article.querySelector(`.${BUTTON_CLASS}`)) injected++;
+  });
+  if (fresh.length) log(`扫描 ${fresh.length} 条推文，注入按钮 ${injected} 个`);
 }
 
 /** 监听时间线动态加载，对新出现的推文注入按钮。*/
@@ -132,4 +143,5 @@ function observe(): void {
   scan(); // 首屏已渲染的推文
 }
 
+log("content script 已加载，开始监听时间线");
 observe();
