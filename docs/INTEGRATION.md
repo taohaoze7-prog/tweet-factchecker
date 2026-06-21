@@ -46,6 +46,16 @@ real → verdict=true conf=0.99 claims=2
 claim(haiku) → evaluator(sonnet + web_search 搜证) → critic(sonnet) 复核 → 聚合，
 判定 `true / 0.99`，模型分层与契约约定一致。
 
+### 扩展双链路（构建期 mock 开关）
+
+`extension/src/api.ts` 用 `import.meta.env.VITE_USE_MOCK` 在构建期决定走向，
+缺省打真后端，杜绝误把假数据发上线。两条链路均经浏览器点「核查」验收：
+
+| 构建 | 产物 | 链路 | 浮层结果 |
+|------|------|------|----------|
+| `npm run build`（缺省）| 6.81 kB（mock JSON 被 tree-shake）| `POST localhost:8000/factcheck` 真后端 | 72.0 / 基本属实（mock orchestrator）；真实 agent 时 true / 0.99 |
+| `VITE_USE_MOCK=true npm run build` | 8.13 kB（mock JSON 内联）| 离线 `mocks/response.json`，无需后端 | 35.2 / 大体不实 / 2 断言 / 3 证据 |
+
 ## 复现
 
 见根目录 [`CLAUDE.md`](../CLAUDE.md) 的「本地端到端」。
