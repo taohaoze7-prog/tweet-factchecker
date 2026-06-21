@@ -349,7 +349,13 @@ export class FactCard {
   private readonly rows = new Map<string, HTMLElement>();
 
   constructor(anchor: HTMLElement) {
-    anchor.querySelectorAll(`:scope > .${HOST_CLASS}`).forEach((n) => n.remove());
+    // 去掉本推文已有的卡（紧随 article 的兄弟节点），避免重复
+    let sib = anchor.nextElementSibling;
+    while (sib && sib.classList.contains(HOST_CLASS)) {
+      const next = sib.nextElementSibling;
+      sib.remove();
+      sib = next;
+    }
 
     this.host = document.createElement("div");
     this.host.className = HOST_CLASS;
@@ -409,7 +415,8 @@ export class FactCard {
     this.fc.append(edge, mast, hero, this.summary, this.claimsBox);
     this.wrap.append(glow, this.fc);
     this.root.appendChild(this.wrap);
-    anchor.appendChild(this.host);
+    // 挂到推文之后（兄弟节点）→ 通栏落在推文下方，而非被 article 的 flex 挤到右侧
+    anchor.insertAdjacentElement("afterend", this.host);
 
     this.timing = metaSpan;
   }
