@@ -55,6 +55,11 @@ export async function factCheck(
 async function* factCheckStreamRemote(
   req: FactCheckRequest
 ): AsyncGenerator<StreamEvent> {
+  // 扩展重载后，旧页面里的 content script 会失联（chrome.runtime.id 变 undefined）。
+  // 给出可操作提示，而非抛 "Extension context invalidated"。
+  if (!chrome.runtime?.id) {
+    throw new Error("扩展已更新，请刷新本页面（Cmd+Shift+R）后重试");
+  }
   const port = chrome.runtime.connect({ name: "factcheck" });
   const queue: StreamEvent[] = [];
   let wake: (() => void) | null = null;
