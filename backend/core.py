@@ -61,15 +61,28 @@ def aggregate(tweet_id: str, results: list[ClaimResult]) -> tuple[Verdict, float
     全部不可核查则整体 UNVERIFIABLE。
     返回 (overall_verdict, overall_confidence, summary)。
     """
+    total = len(results)
     scored = [r for r in results if r.final_verdict in _VERDICT_SCORE]
     if not scored:
+        # 有断言但全部无法核实 vs 压根没抽到断言，分别给话术，避免笼统。
+        if total:
+            return Verdict.UNVERIFIABLE, 0.0, f"共 {total} 条断言，均无法核实。"
         return Verdict.UNVERIFIABLE, 0.0, "无可核查的事实性断言。"
 
     weight = sum(r.final_confidence for r in scored) or 1.0
     avg = sum(_VERDICT_SCORE[r.final_verdict] * r.final_confidence for r in scored) / weight
     overall = _nearest_verdict(avg)
     confidence = round(weight / len(scored), 3)
-    summary = f"核查 {len(scored)} 条断言，整体判定：{overall.value}。"
+    # 透明化覆盖率：整体判定只基于已核实的断言，未核实的必须在结论里明说，
+    # 否则「3 条里只核实 1 条」也会被头部 verdict 一笔带过，误导读者。
+    unverified = total - len(scored)
+    if unverified:
+        summary = (
+            f"共 {total} 条断言，{len(scored)} 条已核实，整体判定：{overall.value}；"
+            f"另有 {unverified} 条无法核实，未计入整体判定。"
+        )
+    else:
+        summary = f"核查 {total} 条断言，整体判定：{overall.value}。"
     return overall, confidence, summary
 
 
