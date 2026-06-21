@@ -13,10 +13,12 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from cache import CachingChecker, Checker, ResultCache
 from contracts.models import FactCheckRequest, FactCheckResult
 from mocks import build_mock_orchestrator
+from stream_events import ErrorEvent, to_sse
 from wiring import build_real_orchestrator
 
 
@@ -38,8 +40,25 @@ def create_app(orchestrator: Checker) -> FastAPI:
 
     @app.post("/factcheck", response_model=FactCheckResult)
     async def factcheck(request: FactCheckRequest) -> FactCheckResult:
-        """核查一条推文，返回完整结论。"""
+        """核查一条推文，返回完整结论（一次性）。"""
         return await orchestrator.check(request)
+
+    @app.post("/factcheck/stream")
+    async def factcheck_stream(request: FactCheckRequest) -> StreamingResponse:
+        """流式核查：SSE 推 claims → claim×N → done，前端渐进渲染。"""
+
+        async def gen():
+            try:
+                async for event in orchestrator.check_stream(request):
+                    yield to_sse(event)
+            except Exception as exc:  # noqa: BLE001 — 流内兜底，转 error 事件
+                yield to_sse(ErrorEvent(message=f"{type(exc).__name__}: {exc}"))
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return app
 

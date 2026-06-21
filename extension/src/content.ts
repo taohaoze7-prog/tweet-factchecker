@@ -1,8 +1,8 @@
 // Content script：抓推文 + 注入"核查"按钮 + 触发浮层。
 // frontend worktree 的主战场。
 
-import { factCheck } from "./api";
-import { injectStyles, renderOverlay, renderError } from "./overlay";
+import { factCheckStream } from "./api";
+import { injectStyles, ProgressOverlay, renderError } from "./overlay";
 import type { FactCheckRequest } from "./types";
 
 const BUTTON_CLASS = "fc-check-btn";
@@ -71,9 +71,15 @@ function injectButton(article: HTMLElement): void {
     if (!req) return;
     btn.disabled = true;
     btn.textContent = "核查中…";
+    const progress = new ProgressOverlay(article);
     try {
-      const result = await factCheck(req);
-      renderOverlay(article, result);
+      // 渐进消费：claims 出骨架 → 每条 claim 填行 → done 换最终卡片。
+      for await (const event of factCheckStream(req)) {
+        if (event.type === "claims") progress.setClaims(event.claims);
+        else if (event.type === "claim") progress.resolveClaim(event.result);
+        else if (event.type === "done") progress.finalize(event.result);
+        else if (event.type === "error") throw new Error(event.message);
+      }
       btn.textContent = "✓ 已核查";
     } catch (err) {
       console.error("[factchecker]", err);

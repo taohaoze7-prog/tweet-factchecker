@@ -1,7 +1,7 @@
 // 浮层渲染：把 FactCheckResult 渲染成推文下方的核查卡片。
 // frontend worktree 负责样式与交互。所有文本走 textContent，杜绝注入。
 
-import type { ClaimResult, FactCheckResult, Stance, Verdict } from "./types";
+import type { Claim, ClaimResult, FactCheckResult, Stance, Verdict } from "./types";
 
 const OVERLAY_CLASS = "fc-overlay";
 const STYLE_ID = "fc-style";
@@ -225,6 +225,93 @@ export function renderOverlay(
 
   card.append(head, claims, foot);
   anchor.appendChild(card);
+}
+
+/** 骨架行：断言已抽出、尚未评估完。*/
+function buildPendingClaim(claim: Claim): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "fc-claim";
+  const head = document.createElement("div");
+  head.className = "fc-claim-head";
+  const verdict = document.createElement("span");
+  verdict.className = "fc-claim-verdict";
+  verdict.textContent = "评估中…";
+  verdict.style.color = "#71767b";
+  head.appendChild(verdict);
+  const text = document.createElement("p");
+  text.className = "fc-claim-text";
+  text.textContent = claim.text;
+  wrap.append(head, text);
+  return wrap;
+}
+
+/** 流式进度浮层：先出骨架，逐条填判定，done 时换成规范最终卡片。*/
+export class ProgressOverlay {
+  private readonly anchor: HTMLElement;
+  private readonly claimsBox: HTMLElement;
+  private readonly status: HTMLElement;
+  private readonly rows = new Map<string, HTMLElement>();
+
+  constructor(anchor: HTMLElement) {
+    this.anchor = anchor;
+    injectStyles();
+    clearExisting(anchor);
+
+    const card = document.createElement("div");
+    card.className = OVERLAY_CLASS;
+
+    const head = document.createElement("div");
+    head.className = "fc-head";
+    const score = document.createElement("div");
+    score.className = "fc-score";
+    const num = document.createElement("b");
+    num.textContent = "…";
+    num.style.color = "#71767b";
+    const lbl = document.createElement("span");
+    lbl.textContent = "核查中";
+    score.append(num, lbl);
+    const right = document.createElement("div");
+    right.style.flex = "1";
+    this.status = document.createElement("p");
+    this.status.className = "fc-summary";
+    this.status.textContent = "正在抽取断言…";
+    right.appendChild(this.status);
+    head.append(score, right);
+
+    this.claimsBox = document.createElement("div");
+    this.claimsBox.className = "fc-claims";
+
+    card.append(head, this.claimsBox);
+    anchor.appendChild(card);
+  }
+
+  /** 收到断言骨架：渲染待评估行。*/
+  setClaims(claims: Claim[]): void {
+    this.status.textContent = claims.length
+      ? `核查 ${claims.length} 条断言…`
+      : "未发现可核查断言。";
+    this.claimsBox.replaceChildren();
+    this.rows.clear();
+    for (const c of claims) {
+      const row = buildPendingClaim(c);
+      this.rows.set(c.id, row);
+      this.claimsBox.appendChild(row);
+    }
+  }
+
+  /** 某条断言评完：用实际结果替换其骨架行。*/
+  resolveClaim(cr: ClaimResult): void {
+    const filled = buildClaim(cr);
+    const row = this.rows.get(cr.claim.id);
+    if (row) row.replaceWith(filled);
+    else this.claimsBox.appendChild(filled);
+    this.rows.set(cr.claim.id, filled);
+  }
+
+  /** 全部完成：替换为规范最终卡片（可信分头部 + 脚部模型/耗时）。*/
+  finalize(result: FactCheckResult): void {
+    renderOverlay(this.anchor, result);
+  }
 }
 
 /** 核查失败时渲染错误卡片。*/

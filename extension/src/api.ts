@@ -5,6 +5,7 @@
 // 杜绝"忘了改 const 把假数据发上线"的隐患。
 
 import type { FactCheckRequest, FactCheckResult } from "./types";
+import { parseSSE, type StreamEvent } from "./stream";
 import mockResponse from "../mocks/response.json";
 
 const BACKEND_URL = "http://localhost:8000";
@@ -43,4 +44,43 @@ export async function factCheck(
   req: FactCheckRequest
 ): Promise<FactCheckResult> {
   return USE_MOCK ? factCheckMock(req) : factCheckRemote(req);
+}
+
+/** 真实后端流式调用：POST /factcheck/stream，逐条吐出 StreamEvent。*/
+async function* factCheckStreamRemote(
+  req: FactCheckRequest
+): AsyncGenerator<StreamEvent> {
+  const resp = await fetch(`${BACKEND_URL}/factcheck/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!resp.ok) {
+    throw new Error(`factcheck stream failed: ${resp.status}`);
+  }
+  yield* parseSSE(resp);
+}
+
+/** Mock 流式：从固定假数据合成 claims → claim×N → done 事件序列。*/
+async function* factCheckStreamMock(
+  req: FactCheckRequest
+): AsyncGenerator<StreamEvent> {
+  const result: FactCheckResult = {
+    ...(mockResponse as unknown as FactCheckResult),
+    tweet_id: req.tweet_id,
+  };
+  yield { type: "claims", claims: result.claims.map((cr) => cr.claim) };
+  const per = MOCK_LATENCY_MS / Math.max(result.claims.length, 1);
+  for (const cr of result.claims) {
+    await new Promise((r) => setTimeout(r, per));
+    yield { type: "claim", result: cr };
+  }
+  yield { type: "done", result };
+}
+
+/** 流式核查：渐进消费 claims → claim×N → done（或 error）。*/
+export function factCheckStream(
+  req: FactCheckRequest
+): AsyncGenerator<StreamEvent> {
+  return USE_MOCK ? factCheckStreamMock(req) : factCheckStreamRemote(req);
 }

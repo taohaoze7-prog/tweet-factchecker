@@ -12,15 +12,20 @@ from __future__ import annotations
 import hashlib
 import time
 from collections import OrderedDict
-from typing import Optional, Protocol
+from typing import AsyncIterator, Optional, Protocol
 
 from contracts.models import FactCheckRequest, FactCheckResult
+from stream_events import DoneEvent, StreamEvent
 
 
 class Checker(Protocol):
-    """凡有 async check(request)->result 者皆可被缓存包装（Orchestrator 即满足）。"""
+    """凡有 check + check_stream 者皆可被缓存包装（Orchestrator 即满足）。"""
 
     async def check(self, request: FactCheckRequest) -> FactCheckResult: ...
+
+    def check_stream(
+        self, request: FactCheckRequest
+    ) -> AsyncIterator[StreamEvent]: ...
 
 
 class ResultCache:
@@ -79,6 +84,29 @@ class CachingChecker:
         result = await self._inner.check(request)
         self._cache.put(request, result)
         return result
+
+    async def check_stream(
+        self, request: FactCheckRequest
+    ) -> AsyncIterator[StreamEvent]:
+        """流式 + 缓存：命中直接推一个 done（无需流式），未命中边流边在末尾入缓存。"""
+        cached = self._cache.get(request)
+        if cached is not None:
+            started = time.monotonic()
+            hit_ms = int((time.monotonic() - started) * 1000)
+            yield DoneEvent(
+                result=cached.model_copy(
+                    update={"tweet_id": request.tweet_id, "processing_ms": hit_ms}
+                )
+            )
+            return
+
+        final: Optional[FactCheckResult] = None
+        async for event in self._inner.check_stream(request):
+            if isinstance(event, DoneEvent):
+                final = event.result
+            yield event
+        if final is not None:
+            self._cache.put(request, final)
 
     # TODO(scale)：多 worker 部署时把 ResultCache 换成 Redis 等共享后端，
     # CachingChecker 逻辑不变。

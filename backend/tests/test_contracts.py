@@ -142,6 +142,54 @@ async def test_caching_checker_ttl_expiry() -> None:
     assert calls["n"] == 2
 
 
+# ─────────────────── 流式：事件序列 claims → claim×N → done ───────────────────
+
+@pytest.mark.asyncio
+async def test_check_stream_event_order() -> None:
+    from mocks import build_mock_orchestrator
+    from stream_events import ClaimsEvent, ClaimDoneEvent, DoneEvent
+
+    orch = build_mock_orchestrator()
+    events = [
+        ev
+        async for ev in orch.check_stream(
+            FactCheckRequest(tweet_id="t", text="地球是圆的。月球绕地球转。")
+        )
+    ]
+    # 首个必是骨架，末个必是 done
+    assert isinstance(events[0], ClaimsEvent)
+    assert isinstance(events[-1], DoneEvent)
+    # 中间全是逐条 claim 事件
+    middle = events[1:-1]
+    assert middle and all(isinstance(e, ClaimDoneEvent) for e in middle)
+    # 骨架里的 claim 数 == 逐条事件数 == 最终 result.claims 数
+    assert len(events[0].claims) == len(middle) == len(events[-1].result.claims)
+    # 每个 claim 事件的 id 都在骨架里
+    skeleton_ids = {c.id for c in events[0].claims}
+    assert {e.result.claim.id for e in middle} == skeleton_ids
+
+
+@pytest.mark.asyncio
+async def test_caching_check_stream_hit_emits_single_done() -> None:
+    from cache import CachingChecker, ResultCache
+    from mocks import build_mock_orchestrator
+    from stream_events import DoneEvent
+
+    checker = CachingChecker(build_mock_orchestrator(), ResultCache(ttl_s=60))
+    req = FactCheckRequest(tweet_id="a", text="同一条。")
+
+    # 第一次：完整流（填充缓存）
+    first = [ev async for ev in checker.check_stream(req)]
+    assert any(isinstance(e, DoneEvent) for e in first)
+
+    # 第二次同文本、不同 id：命中缓存 → 只推一个 done，且 tweet_id 回填
+    req2 = FactCheckRequest(tweet_id="b", text="同一条。")
+    second = [ev async for ev in checker.check_stream(req2)]
+    assert len(second) == 1
+    assert isinstance(second[0], DoneEvent)
+    assert second[0].result.tweet_id == "b"
+
+
 # ─────────────────────── 集成：mock 链路过 HTTP ───────────────────────
 
 @pytest.mark.asyncio
