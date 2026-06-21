@@ -19,7 +19,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from agents._structured import extract_structured
+from agents._structured import parse_structured
 from contracts.models import Claim, Evaluation, Evidence, Stance, Verdict
 from llm.client import ClaudeClient
 
@@ -134,14 +134,12 @@ class ClaudeEvaluatorAgent:
 
     async def _structure(self, claim: Claim, research: str) -> Optional[_EvalDraft]:
         """第二段：把搜证摘要整理成结构化评估草稿。"""
-        return await extract_structured(
+        return await parse_structured(
             self._client.raw,
             model=MODEL,
             system=_STRUCTURE_SYSTEM,
             user=f"待核查断言：\n{claim.text}\n\n搜证记录：\n{research}",
             schema=_EvalDraft,
-            tool_name="record_evaluation",
-            tool_description="基于搜证记录登记对断言的结构化初判。",
             max_tokens=2048,
         )
 

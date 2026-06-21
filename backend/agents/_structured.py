@@ -1,10 +1,11 @@
 """结构化输出助手（agent-layer 内部，私有）。
 
-anthropic 0.75.0 还没有 messages.parse / output_format，这里用「强制工具调用」实现
-跨版本稳定的结构化输出：把 Pydantic 草稿模型的 JSON Schema 当作工具的 input_schema，
-tool_choice 强制模型只能调用它，再用同一模型校验 tool_use.input。
+用官方推荐的 `messages.parse` + Pydantic 草稿模型拿结构化结果（DoD 要求，
+不手撸 JSON 字符串匹配）。各 agent 拿到草稿后在代码侧组装契约对象
+（强制写 id、clamp 概率），保证最终对象一定通过契约校验。
 
-任何失败（网络、拒答、schema 不匹配）都返回 None —— 由各 agent 自行降级，绝不抛错。
+任何失败（网络、拒答、max_tokens 截断导致 parsed_output 为空）都返回 None ——
+由各 agent 自行降级，绝不抛错阻断管道。
 """
 
 from __future__ import annotations
@@ -16,43 +17,28 @@ from pydantic import BaseModel
 T = TypeVar("T", bound=BaseModel)
 
 
-async def extract_structured(
+async def parse_structured(
     raw,
     *,
     model: str,
     system: str,
     user: str,
     schema: Type[T],
-    tool_name: str,
-    tool_description: str,
     max_tokens: int = 2048,
 ) -> Optional[T]:
-    """用强制工具调用让模型吐出 `schema` 形状的结构化结果。
+    """用 messages.parse 让模型吐出 `schema` 形状的结构化结果。
 
     raw: anthropic.AsyncAnthropic 实例（来自 ClaudeClient.raw）。
     返回校验通过的 `schema` 实例；任何环节失败返回 None。
     """
-    tool = {
-        "name": tool_name,
-        "description": tool_description,
-        "input_schema": schema.model_json_schema(),
-    }
     try:
-        resp = await raw.messages.create(
+        resp = await raw.messages.parse(
             model=model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
-            tools=[tool],
-            tool_choice={"type": "tool", "name": tool_name},
+            output_format=schema,
         )
     except Exception:
         return None
-
-    for block in resp.content:
-        if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
-            try:
-                return schema.model_validate(block.input)
-            except Exception:
-                return None
-    return None
+    return resp.parsed_output
