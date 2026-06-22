@@ -14,5 +14,8 @@ dist/
 .env
 *.local
 
+# 用户反馈数据（本地采集，不入库）
+backend/data/
+
 # OS
 .DS_Store

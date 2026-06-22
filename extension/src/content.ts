@@ -98,7 +98,7 @@ function injectButton(article: HTMLElement): void {
     btn.disabled = true;
     btn.style.opacity = "0.6";
     btn.textContent = "核查中…";
-    const card = new FactCard(article);
+    const card = new FactCard(article, req.text);
     try {
       // 渐进消费：claims 出骨架 → 每条 claim 填行 → done 换最终卡片。
       for await (const event of factCheckStream(req)) {

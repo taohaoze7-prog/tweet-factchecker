@@ -4,9 +4,19 @@
 // 直接返回 mocks/response.json，无需起后端。上线构建不带该 env → 自动走真接口，
 // 杜绝"忘了改 const 把假数据发上线"的隐患。
 
-import type { FactCheckRequest, FactCheckResult } from "./types";
+import type { FactCheckRequest, FactCheckResult, Verdict } from "./types";
 import { type StreamEvent } from "./stream";
 import mockResponse from "../mocks/response.json";
+
+/** 用户反馈载荷（扩展 → worker → 后端 /feedback）。*/
+export interface FeedbackPayload {
+  tweet_id: string;
+  text: string;
+  our_verdict: Verdict;
+  our_confidence: number;
+  rating: "up" | "down";
+  models: Record<string, string>;
+}
 
 const BACKEND_URL = "http://localhost:8000";
 
@@ -122,4 +132,19 @@ export function factCheckStream(
   req: FactCheckRequest
 ): AsyncGenerator<StreamEvent> {
   return USE_MOCK ? factCheckStreamMock(req) : factCheckStreamRemote(req);
+}
+
+/** 上报用户反馈（经 worker POST /feedback）。失败静默，不打扰用户。*/
+export async function sendFeedback(payload: FeedbackPayload): Promise<boolean> {
+  if (USE_MOCK) return true; // 离线 mock 不上报
+  if (!chrome.runtime?.id) return false; // 扩展已失效
+  try {
+    const resp = (await chrome.runtime.sendMessage({
+      type: "feedback",
+      payload,
+    })) as { ok?: boolean } | undefined;
+    return !!resp?.ok;
+  } catch {
+    return false;
+  }
 }

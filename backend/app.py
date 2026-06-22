@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 
 from cache import CachingChecker, Checker, ResultCache
 from contracts.models import FactCheckRequest, FactCheckResult
+from feedback import Feedback, record_feedback
 from mocks import build_mock_orchestrator
 from stream_events import ErrorEvent, to_sse
 from wiring import build_real_orchestrator
@@ -59,6 +60,12 @@ def create_app(orchestrator: Checker) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    @app.post("/feedback")
+    async def feedback(fb: Feedback) -> dict[str, bool]:
+        """采集用户对一次核查的 👍/👎，落 JSONL 供离线调优。"""
+        record_feedback(fb)
+        return {"ok": True}
 
     return app
 

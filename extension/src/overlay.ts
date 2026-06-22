@@ -4,6 +4,7 @@
 // 所有文本走 textContent，杜绝注入；仅纯数字/静态 SVG 用 innerHTML。
 
 import type { Claim, ClaimResult, FactCheckResult, Stance, Verdict } from "./types";
+import { sendFeedback } from "./api";
 
 const HOST_CLASS = "fc-host";
 
@@ -195,6 +196,17 @@ const CARD_CSS = `
 }
 .fc-foot .dots { color: color-mix(in srgb, var(--accent) 70%, var(--ink-3)); }
 
+/* 反馈 👍/👎 */
+.fc-fb { display: flex; align-items: center; gap: 8px; padding: 2px 20px 14px; }
+.fc-fb-q { font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--ink-3); }
+.fc-fb-btn {
+  cursor: pointer; background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid var(--hair-2); border-radius: 7px; padding: 1px 9px;
+  font-size: 14px; line-height: 1.5; color: var(--ink-2);
+}
+.fc-fb-btn:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); }
+.fc-fb-done { font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--accent); }
+
 /* 骨架 / 加载 */
 .fc-skel { height: 11px; border-radius: 3px; background: var(--hair); animation: fcpulse 1.3s ease-in-out infinite; }
 .fc-skel.short { width: 38%; }
@@ -347,10 +359,12 @@ export class FactCard {
   private readonly claimsBox: HTMLElement;
   private readonly foot: HTMLElement;
   private readonly rows = new Map<string, HTMLElement>();
+  private readonly tweetText: string;
   private startedAt = 0;
   private tick: number | undefined;
 
-  constructor(anchor: HTMLElement) {
+  constructor(anchor: HTMLElement, tweetText: string) {
+    this.tweetText = tweetText;
     // 去掉本推文已有的卡（紧随 article 的兄弟节点），避免重复
     let sib = anchor.nextElementSibling;
     while (sib && sib.classList.contains(HOST_CLASS)) {
@@ -519,6 +533,42 @@ export class FactCard {
     right.textContent = `来源 ${evCount} · ${secs}s`;
     this.foot.replaceChildren(left, right);
     if (!this.foot.parentElement) this.fc.appendChild(this.foot);
+
+    this.renderFeedback(result);
+  }
+
+  /** 卡片底部 👍/👎，点了即上报并致谢。*/
+  private renderFeedback(result: FactCheckResult): void {
+    const fb = document.createElement("div");
+    fb.className = "fc-fb";
+    const q = document.createElement("span");
+    q.className = "fc-fb-q";
+    q.textContent = "这条核查有用吗？";
+    fb.appendChild(q);
+
+    const mkBtn = (label: string, rating: "up" | "down"): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.className = "fc-fb-btn";
+      b.type = "button";
+      b.textContent = label;
+      b.addEventListener("click", () => {
+        const done = document.createElement("span");
+        done.className = "fc-fb-done";
+        done.textContent = "✓ 谢谢反馈";
+        fb.replaceChildren(done);
+        void sendFeedback({
+          tweet_id: result.tweet_id,
+          text: this.tweetText,
+          our_verdict: result.overall_verdict,
+          our_confidence: result.overall_confidence,
+          rating,
+          models: result.model_versions ?? {},
+        });
+      });
+      return b;
+    };
+    fb.append(mkBtn("👍", "up"), mkBtn("👎", "down"));
+    this.fc.appendChild(fb);
   }
 
   error(err: unknown): void {

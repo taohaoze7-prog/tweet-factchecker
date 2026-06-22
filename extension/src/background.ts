@@ -59,3 +59,16 @@ chrome.runtime.onConnect.addListener((port) => {
     }
   });
 });
+
+// 一次性请求：用户反馈 👍/👎 → POST /feedback（同样走 worker，绕页面 CSP）。
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!msg || msg.type !== "feedback") return undefined;
+  fetch(`${BACKEND}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(msg.payload),
+  })
+    .then((r) => sendResponse({ ok: r.ok }))
+    .catch((e) => sendResponse({ ok: false, error: String(e) }));
+  return true; // 异步 sendResponse
+});
