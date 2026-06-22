@@ -120,6 +120,42 @@ engine-wiring 线代码未落地，集成位代补其 DoD：
 2. **多 worker 缓存**：现为进程内内存缓存，多实例部署需换 Redis（`cache.py` 已留 TODO）。
 3. **engine-wiring 分支**：其 DoD 由集成位在 main 代补，分支本身停在作业书，可归档。
 
+---
+
+## 数据驱动的筛选/过滤复盘（真链路采样后定）
+
+对核查管道「筛选 + 过滤」标准做了一轮真链路采样，结论与处置：
+
+### 已做
+
+- **结论透明化（已落 `8816cac`）**：`aggregate` 的 summary 明说覆盖率（共 N 条 / M 条已核实 /
+  K 条无法核实），整体判定仍只基于已核实断言。
+- **证据溯源观测（A，本次）**：`evaluator._gather` 现额外收集 `web_search_tool_result` 的真实
+  检索 URL；`evaluate` 对每条证据 URL 做精确+域名级溯源，**不在检索集里只告警不丢弃**
+  （`logger.warning`）。实测幻觉率 0%（10/10 精确命中），故只留观测口，不做拦截。
+
+### 数据驱动否决（不做）
+
+- **③ 严格 URL 过滤器**：实测幻觉率 0% → 严格丢弃零收益且有误杀风险，降级为上面的「仅告警」。
+- **② 聚合二次加权**：confidence 已折进证据强度，二次加权收益不明、易引偏差。
+- **④ 权威白名单**：高维护、易过时；交叉验证 + critic 已部分覆盖。
+
+### 超时值（⑤）
+
+- **canonical = 300s**。单条 `evaluate` 实测 48–63s，加 critic ≈ 65–90s，限流重试可达 120–150s；
+  150s 余量太薄会误降级真结论。`main` 已是 300s（代码+文档自洽）。
+- ⚠️ **协调项**：`ui-upgrade` 分支把 `CLAIM_TIMEOUT_S` 收紧到了 150s，需对齐回 300s。
+
+### 跨分支 bug 记录（main 无需改）
+
+- 采样发现 `_structure` 偶发假阴性（真断言被判 UNVERIFIABLE，失败率约 50%）：根因是模型把
+  `evidence` 数组 double-encode 成 JSON 字符串，旧 `extract_structured` 的 `model_validate` 噎住。
+- **该 bug 只在 `ui-upgrade`（仍用 `extract_structured`）**。`main` 已迁官方
+  `parse_structured`（`messages.parse` + `output_format`，服务端强制 schema），实测 3/3 稳定，
+  结构上已消除此 bug。
+- ⚠️ **协调项**：`ui-upgrade` 应跟随 main 迁 `parse_structured`，或在 `extract_structured`
+  校验前加 JSON-string 还原。
+
 ## 复现
 
 见根目录 [`CLAUDE.md`](../CLAUDE.md) 的「本地端到端」。

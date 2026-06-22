@@ -24,6 +24,8 @@ from agents.evaluator import (
     ClaudeEvaluatorAgent,
     _EvalDraft,
     _EvidenceDraft,
+    _domain,
+    _ungrounded_urls,
 )
 from contracts.models import Claim, Critique, Evaluation, Stance, Verdict
 
@@ -248,3 +250,29 @@ async def test_evaluator_confidence_clamp_boundaries(raw_conf, expected):
     )
     evl = await ClaudeEvaluatorAgent(client).evaluate(CLAIM)
     assert evl.confidence == expected
+
+
+# ───────────────────────── 证据溯源观测（A：日志告警）─────────────────────────
+
+
+def test_domain_strips_www_and_scheme():
+    assert _domain("https://www.cnbc.com/a/b") == "cnbc.com"
+    assert _domain("http://iea.org/x") == "iea.org"
+    assert _domain("not a url") == ""
+
+
+def test_ungrounded_urls_flags_only_unretrieved():
+    retrieved = {
+        "https://www.cnbc.com/2024/06/05/nvidia.html",
+        "https://iea.org/report",
+    }
+    evidence = [
+        "https://www.cnbc.com/2024/06/05/nvidia.html",   # 精确命中
+        "https://iea.org/different-page",                 # 域名命中（URL 改写）
+        "https://bloomberg.com/made-up",                  # 查无 → 告警
+    ]
+    assert _ungrounded_urls(evidence, retrieved) == ["https://bloomberg.com/made-up"]
+
+
+def test_ungrounded_urls_empty_retrieved_flags_all():
+    assert _ungrounded_urls(["https://a.com/x"], set()) == ["https://a.com/x"]
