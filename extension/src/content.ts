@@ -1,15 +1,16 @@
 // Content script：抓推文 + 注入"核查"按钮 + 触发浮层。
 // frontend worktree 的主战场。
 
-import { factCheckStream, IS_MOCK, BACKEND } from "./api";
+import { factCheckStream, IS_MOCK } from "./api";
 import { FactCard } from "./overlay";
 import type { FactCheckRequest } from "./types";
 
 const BUTTON_CLASS = "fc-check-btn";
 const PROCESSED_ATTR = "data-fc-processed";
 
-// 实战调试期诊断开关：开发者工具 Console 可见注入情况。稳定后置 false。
-const DEBUG = true;
+// 诊断日志走构建期开关：mock 构建（开发）开，上线构建自动关。
+// 用 const 而非运行时变量，让打包器把整段 log 调用直接消除。
+const DEBUG = IS_MOCK;
 const log = (...a: unknown[]): void => {
   if (DEBUG) console.info("[factchecker]", ...a);
 };
@@ -89,6 +90,8 @@ function injectButton(article: HTMLElement): void {
   btn.className = BUTTON_CLASS;
   btn.type = "button";
   btn.textContent = "✓ 核查";
+  // ✓ 是装饰符号，读屏会念成"对勾"；显式给出语义标签。
+  btn.setAttribute("aria-label", "核查这条推文的事实性断言");
   styleButton(btn);
   btn.addEventListener("click", async (e) => {
     e.preventDefault();
@@ -110,8 +113,17 @@ function injectButton(article: HTMLElement): void {
       btn.textContent = "✓ 已核查";
       btn.style.opacity = "1";
     } catch (err) {
-      console.error("[factchecker]", err);
-      card.error(err);
+      log("核查失败", err);
+      // 未配置 Key 不是"失败"，是没装好——给一条能直接点进设置页的路径，
+      // 而不是让用户对着报错自己猜。
+      const kind = (err as { kind?: string })?.kind;
+      if (kind === "no_key") {
+        card.needsSetup(() => {
+          void chrome.runtime.sendMessage({ type: "open_options" });
+        });
+      } else {
+        card.error(err);
+      }
       btn.textContent = "✗ 重试";
       btn.disabled = false;
       btn.style.opacity = "1";
@@ -143,7 +155,5 @@ function observe(): void {
   scan(); // 首屏已渲染的推文
 }
 
-log(
-  `content script 已加载 · 模式=${IS_MOCK ? "MOCK(假数据)" : "REAL→" + BACKEND} · 开始监听`
-);
+log(`content script 已加载 · 模式=${IS_MOCK ? "MOCK(假数据)" : "REAL"} · 开始监听`);
 observe();

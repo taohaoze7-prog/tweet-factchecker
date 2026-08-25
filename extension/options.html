@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tweet FactChecker 设置</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="head">
+        <h1>Tweet FactChecker</h1>
+        <p class="sub">推文事实核查 · 本地运行，密钥不出浏览器</p>
+      </header>
+
+      <section class="card">
+        <h2>Anthropic API Key</h2>
+        <p class="hint">
+          本扩展直接用你自己的 Anthropic 账户调用 Claude。密钥只保存在这台设备上，
+          仅发往 <code>api.anthropic.com</code>，不经过任何第三方服务器。
+        </p>
+
+        <div class="field">
+          <label class="label" for="key">API Key</label>
+          <div class="row">
+            <input
+              id="key"
+              type="password"
+              placeholder="sk-ant-..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button id="toggle" class="ghost" type="button" title="显示/隐藏">显示</button>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="save" class="primary" type="button">验证并保存</button>
+          <button id="clear" class="ghost" type="button">清除</button>
+        </div>
+
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+
+        <p class="hint">
+          还没有密钥？到
+          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener"
+            >Anthropic 控制台</a
+          >
+          创建，并确保账户中有可用额度。
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>关于花费</h2>
+        <p class="hint">
+          每次核查会调用一次 Haiku（抽取断言）、以及对每条断言各两次 Sonnet（联网搜证 +
+          复核）。费用按 Anthropic 官方价目从你的账户扣除，典型单次核查约
+          <strong>$0.10–0.35</strong>，取决于推文里断言的条数。扩展本身不收费，
+          开发者也不经手你的任何费用。
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>隐私</h2>
+        <p class="hint">
+          你点击核查的推文文本会发往 Anthropic 用于核查，联网搜证会将断言内容作为搜索词。
+          除此之外扩展不收集、不上传、不存储任何数据；没有分析埋点，没有远程服务器。
+          详见 <a id="privacy" href="#" target="_blank" rel="noopener">隐私政策</a>。
+        </p>
+      </section>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

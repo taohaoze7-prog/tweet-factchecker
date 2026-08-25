@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tweet FactChecker 隐私政策</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 48px 24px 80px;
+        font:
+          16px/1.75 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          "PingFang SC",
+          sans-serif;
+        color: #1a1d24;
+        background: #fff;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          color: #e8edf6;
+          background: #0e1116;
+        }
+        td,
+        th {
+          border-color: #2a303b !important;
+        }
+        code {
+          background: #1c222c !important;
+        }
+      }
+      h1 {
+        font-size: 28px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 18px;
+        margin: 36px 0 10px;
+      }
+      .meta {
+        color: #6b7280;
+        font-size: 14px;
+        margin: 0 0 28px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 14px 0;
+        font-size: 15px;
+      }
+      th,
+      td {
+        border: 1px solid #d8dde5;
+        padding: 9px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        font-weight: 600;
+      }
+      code {
+        background: #f1f3f7;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .key {
+        border-left: 3px solid #2f7de1;
+        padding: 12px 16px;
+        margin: 20px 0;
+        background: rgba(47, 125, 225, 0.07);
+      }
+      footer {
+        margin-top: 48px;
+        padding-top: 20px;
+        border-top: 1px solid #d8dde5;
+        color: #6b7280;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Tweet FactChecker 隐私政策</h1>
+    <p class="meta">最后更新：2026 年 8 月 25 日</p>
+
+    <div class="key">
+      <strong>核心事实：本扩展没有服务器。</strong>
+      开发者不运营任何后端服务，不接收、不存储、不传输你的任何数据。
+      扩展完全在你的浏览器内运行，唯一的对外网络请求是直接发往
+      <code>api.anthropic.com</code>——用你自己的 Anthropic 账户。
+    </div>
+
+    <h2>一、我们收集什么</h2>
+    <p><strong>不收集任何数据。</strong>本扩展没有分析埋点、没有崩溃上报、没有用户标识，也没有可供上传数据的服务器。</p>
+
+    <h2>二、数据在本机如何存储</h2>
+    <table>
+      <tr>
+        <th>数据</th>
+        <th>存储位置</th>
+        <th>用途</th>
+        <th>如何删除</th>
+      </tr>
+      <tr>
+        <td>Anthropic API Key</td>
+        <td>本机 <code>chrome.storage.local</code></td>
+        <td>调用 Claude 完成核查</td>
+        <td>设置页「清除」，或卸载扩展</td>
+      </tr>
+      <tr>
+        <td>核查有用性标记（👍/👎）</td>
+        <td>本机 <code>chrome.storage.local</code>（最多 200 条）</td>
+        <td>供你自己参考；不会自动上传</td>
+        <td>卸载扩展即清除</td>
+      </tr>
+    </table>
+    <p>
+      两项均使用 <code>storage.local</code> 而非 <code>storage.sync</code>，
+      因此不会同步到你的其他设备，也不经过 Google 的服务器。
+    </p>
+
+    <h2>三、数据发往何处</h2>
+    <p>当你<strong>主动点击某条推文的「核查」按钮</strong>时，以下内容会发送给 Anthropic：</p>
+    <ul>
+      <li>该条推文的文本内容</li>
+      <li>从中抽取出的事实性断言（会作为联网搜索的检索词）</li>
+      <li>你的 API Key（作为身份凭证）</li>
+    </ul>
+    <p>
+      不点击核查按钮时，不发送任何内容——扩展不会在后台读取或上传你浏览的推文。
+      这些数据的处理受
+      <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener"
+        >Anthropic 隐私政策</a
+      >
+      约束，与开发者无关；开发者无法看到其中任何内容。
+    </p>
+
+    <h2>四、费用</h2>
+    <p>
+      扩展本身免费。核查产生的模型调用费用由 Anthropic 直接从你的账户扣除，
+      开发者不经手、不抽成、也无法查看你的用量。
+    </p>
+
+    <h2>五、权限说明</h2>
+    <table>
+      <tr>
+        <th>权限</th>
+        <th>为什么需要</th>
+      </tr>
+      <tr>
+        <td><code>storage</code></td>
+        <td>在本机保存你的 API Key 与反馈标记</td>
+      </tr>
+      <tr>
+        <td><code>api.anthropic.com</code> 主机权限</td>
+        <td>
+          从扩展后台直接调用 Claude。必须由后台发起：X/Twitter 的内容安全策略（CSP）
+          会拦截页面内脚本的跨域请求
+        </td>
+      </tr>
+      <tr>
+        <td>在 x.com / twitter.com 上运行内容脚本</td>
+        <td>在推文旁注入「核查」按钮，并在推文下方渲染核查结果卡片</td>
+      </tr>
+    </table>
+
+    <h2>六、第三方</h2>
+    <p>
+      除 Anthropic 外，本扩展不与任何第三方通信，不含广告、追踪器或分析 SDK。
+      核查过程中的联网搜索由 Anthropic 服务端执行，不经过开发者。
+    </p>
+
+    <h2>七、儿童</h2>
+    <p>本扩展面向成年用户，不针对 13 岁以下儿童，也不会有意收集其信息。</p>
+
+    <h2>八、政策变更</h2>
+    <p>政策若有实质变更，将更新本页顶部的日期，并在扩展的版本更新说明中注明。</p>
+
+    <h2>九、联系方式</h2>
+    <p>
+      问题与反馈：<a href="https://github.com/taohaoze7-prog/tweet-factchecker/issues"
+        >GitHub Issues</a
+      >
+    </p>
+
+    <footer>Tweet FactChecker · 源码开放于 GitHub</footer>
+  </body>
+</html>

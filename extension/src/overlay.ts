@@ -4,9 +4,19 @@
 // 所有文本走 textContent，杜绝注入；仅纯数字/静态 SVG 用 innerHTML。
 
 import type { Claim, ClaimResult, FactCheckResult, Stance, Verdict } from "./types";
-import { sendFeedback } from "./api";
+import { recordFeedback } from "./api";
 
 const HOST_CLASS = "fc-host";
+
+/** 仅 http(s) 可作为 href——挡住 javascript:/data: 等可执行伪协议。*/
+function isHttpUrl(u: string): boolean {
+  try {
+    const p = new URL(u);
+    return p.protocol === "http:" || p.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 const VERDICT_LABEL: Record<Verdict, string> = {
   true: "属实",
@@ -294,10 +304,15 @@ function buildClaimRow(cr: ClaimResult): HTMLElement {
       const st = document.createElement("span");
       st.className = "st";
       st.textContent = STANCE_LABEL[e.stance];
-      const a = document.createElement("a");
-      a.href = e.source_url;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
+      // 只把 http(s) 交给 href。引擎侧已过滤，这里是纵深防御的最后一道：
+      // 模型输出经推文内容影响，一条诱导它写出 javascript: 的推文
+      // 就能变成卡片里可点击的 XSS。协议不合法就退化成纯文本。
+      const a = document.createElement(isHttpUrl(e.source_url) ? "a" : "span");
+      if (a instanceof HTMLAnchorElement) {
+        a.href = e.source_url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+      }
       a.textContent = e.title || e.source_url;
       const ar = document.createElement("span");
       ar.className = "ar";
@@ -388,6 +403,12 @@ export class FactCard {
     glow.className = "fc-glow";
     this.fc = document.createElement("div");
     this.fc.className = "fc";
+    // 无障碍：核查是异步的，结论在数十秒后才落定。用 role=status + polite
+    // 让读屏软件在结果就绪时播报，而不是让用户对着静默的卡片干等。
+    // polite 而非 assertive——不打断用户当前正在读的内容。
+    this.fc.setAttribute("role", "status");
+    this.fc.setAttribute("aria-live", "polite");
+    this.fc.setAttribute("aria-label", "推文事实核查结果");
 
     const edge = document.createElement("div");
     edge.className = "fc-edge";
@@ -556,7 +577,7 @@ export class FactCard {
         done.className = "fc-fb-done";
         done.textContent = "✓ 谢谢反馈";
         fb.replaceChildren(done);
-        void sendFeedback({
+        void recordFeedback({
           tweet_id: result.tweet_id,
           text: this.tweetText,
           our_verdict: result.overall_verdict,
@@ -579,5 +600,32 @@ export class FactCard {
     msg.className = "fc-err";
     msg.textContent = `核查失败：${err instanceof Error ? err.message : String(err)}`;
     this.fc.replaceChildren(msg);
+  }
+
+  /** 未配置 API Key 的引导态：不是报错，是「还差一步」，所以给按钮而非红字。*/
+  needsSetup(onOpen: () => void): void {
+    this.stopTick();
+    this.wrap.style.setProperty("--accent", VERDICT_COLOR.unverifiable);
+
+    const box = document.createElement("div");
+    box.className = "fc-err";
+
+    const line = document.createElement("div");
+    line.textContent = "还差一步：本扩展用你自己的 Anthropic API Key 运行。";
+    const sub = document.createElement("div");
+    sub.style.cssText = "opacity:.72;margin-top:6px;font-size:12.5px";
+    sub.textContent = "密钥只存在本机，不经过任何第三方服务器。";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "打开设置";
+    btn.style.cssText =
+      "margin-top:12px;padding:7px 16px;border-radius:8px;cursor:pointer;" +
+      "border:1px solid var(--accent);background:transparent;color:var(--accent);" +
+      "font-size:13px;font-weight:600";
+    btn.addEventListener("click", onOpen);
+
+    box.append(line, sub, btn);
+    this.fc.replaceChildren(box);
   }
 }

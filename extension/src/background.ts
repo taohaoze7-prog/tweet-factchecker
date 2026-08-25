@@ -1,74 +1,88 @@
-// Background service worker：代理 content script 的网络请求。
-// worker 的 fetch 不受页面（x.com）CSP 约束，用扩展自己的 host_permissions，
-// 因此能打通 localhost:8000——这是绕过 X CSP 的标准 MV3 解法。
+// Background service worker：核查管道的执行者。
+//
+// 架构变更（v0.2）：管道从 Python 后端整个搬进了这里。
+// 以前 worker 只是代理 → localhost:8000；现在它直接跑 claim/evaluator/critic
+// 三段管道，用用户自己的 Key 调 api.anthropic.com。没有后端，没有中转，
+// Key 不离开这台设备。
+//
+// worker 的 fetch 不受页面（x.com）CSP 约束——这仍是必须走 worker 而非
+// content script 直连的原因。
 //
 // 协议：content 通过 port("factcheck") 连进来 → 发 {type:"request", request}
-//       → worker 流式 fetch /factcheck/stream，逐条回 {type:"event", event}
-//       → 结束 {type:"end"}；出错 {type:"error", message}。
+//       → worker 逐条回 {type:"event", event} → 结束 {type:"end"}
+//       → 出错 {type:"error", message, kind}。
 
-const BACKEND = "http://localhost:8000";
+import { AnthropicError } from "./engine/anthropic";
+import { checkStream } from "./engine/pipeline";
+import { getApiKey } from "./settings";
+import type { FactCheckRequest } from "./types";
+
+/** 把内部错误翻译成用户读得懂、且知道下一步做什么的话。*/
+function describe(e: unknown): { message: string; kind: string } {
+  if (e instanceof AnthropicError) {
+    return { message: e.message, kind: e.kind };
+  }
+  if (e instanceof Error) {
+    return { message: e.message, kind: "unknown" };
+  }
+  return { message: String(e), kind: "unknown" };
+}
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "factcheck") return;
 
   const controller = new AbortController();
-  port.onDisconnect.addListener(() => controller.abort());
+  let closed = false;
+  port.onDisconnect.addListener(() => {
+    closed = true;
+    // 用户关掉卡片 / 离开页面 → 掐断在途请求。
+    // 这条直接省钱：不中止的话，剩余的 Sonnet 调用会继续烧用户额度。
+    controller.abort();
+  });
 
-  port.onMessage.addListener(async (msg: { type?: string; request?: unknown }) => {
-    if (!msg || msg.type !== "request") return;
+  port.onMessage.addListener(async (msg: { type?: string; request?: FactCheckRequest }) => {
+    if (!msg || msg.type !== "request" || !msg.request) return;
+
     try {
-      const resp = await fetch(`${BACKEND}/factcheck/stream`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(msg.request),
-        signal: controller.signal,
-      });
-      if (!resp.ok || !resp.body) {
-        throw new Error(`stream failed: ${resp.status}`);
+      const apiKey = await getApiKey();
+      if (!apiKey) {
+        // 不是错误，是尚未配置——给一条能直接点进设置页的提示。
+        throw new AnthropicError(
+          "no_key",
+          "尚未配置 Anthropic API Key，请在扩展设置中填入后再试。",
+        );
       }
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let sep: number;
-        while ((sep = buf.indexOf("\n\n")) >= 0) {
-          const rec = buf.slice(0, sep);
-          buf = buf.slice(sep + 2);
-          let data = "";
-          for (const line of rec.split("\n")) {
-            if (line.startsWith("data:")) data += line.slice(5).trim();
-          }
-          if (data) {
-            try {
-              port.postMessage({ type: "event", event: JSON.parse(data) });
-            } catch {
-              /* 跳过坏帧 */
-            }
-          }
-        }
+
+      for await (const event of checkStream(apiKey, msg.request, controller.signal)) {
+        if (closed) return; // 端口已断，不再 postMessage（否则抛异常）
+        port.postMessage({ type: "event", event });
       }
-      port.postMessage({ type: "end" });
+      if (!closed) port.postMessage({ type: "end" });
     } catch (e) {
-      port.postMessage({
-        type: "error",
-        message: e instanceof Error ? e.message : String(e),
-      });
+      // 主动取消不算错误，静默收场。
+      if (controller.signal.aborted) return;
+      if (closed) return;
+      const { message, kind } = describe(e);
+      port.postMessage({ type: "error", message, kind });
     }
   });
 });
 
-// 一次性请求：用户反馈 👍/👎 → POST /feedback（同样走 worker，绕页面 CSP）。
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (!msg || msg.type !== "feedback") return undefined;
-  fetch(`${BACKEND}/feedback`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(msg.payload),
-  })
-    .then((r) => sendResponse({ ok: r.ok }))
-    .catch((e) => sendResponse({ ok: false, error: String(e) }));
-  return true; // 异步 sendResponse
+// content script 无权直接开设置页，代它转一手。
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === "open_options") void chrome.runtime.openOptionsPage();
+});
+
+// 首次安装打开设置页——没有 Key 的话扩展做不了任何事，
+// 与其让用户点了核查才看到报错，不如装完就引导配置。
+chrome.runtime.onInstalled.addListener(async (details) => {
+  if (details.reason !== "install") return;
+  if (!(await getApiKey())) {
+    void chrome.runtime.openOptionsPage();
+  }
+});
+
+// 点工具栏图标 → 打开设置页（扩展没有 popup，图标唯一的用途就是进设置）。
+chrome.action.onClicked.addListener(() => {
+  void chrome.runtime.openOptionsPage();
 });
