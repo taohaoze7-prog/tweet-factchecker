@@ -82,7 +82,7 @@
   "processing_ms": 1840,
   "model_versions": {
     "claim": "claude-haiku-4-5",
-    "evaluator": "claude-sonnet-4-6",
-    "critic": "claude-sonnet-4-6"
+    "evaluator": "claude-sonnet-5",
+    "critic": "claude-sonnet-5"
   }
 }
