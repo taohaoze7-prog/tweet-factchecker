@@ -43,6 +43,7 @@ async function* factCheckStreamReal(
   const queue: StreamEvent[] = [];
   let wake: (() => void) | null = null;
   let finished = false;
+  let completed = false; // 是否收到过 end/error —— 用于区分"正常收尾"与"半路断线"
   let failure: FactCheckError | null = null;
 
   const pump = (): void => {
@@ -53,15 +54,27 @@ async function* factCheckStreamReal(
   port.onMessage.addListener(
     (msg: { type: string; event?: StreamEvent; message?: string; kind?: string }) => {
       if (msg.type === "event" && msg.event) queue.push(msg.event);
-      else if (msg.type === "end") finished = true;
-      else if (msg.type === "error") {
+      else if (msg.type === "ping") return; // 心跳，仅用于保活，不入队
+      else if (msg.type === "end") {
+        finished = true;
+        completed = true;
+      } else if (msg.type === "error") {
         failure = new FactCheckError(msg.message ?? "未知错误", msg.kind ?? "unknown");
         finished = true;
+        completed = true;
       }
       pump();
     },
   );
   port.onDisconnect.addListener(() => {
+    // 没收到 end 就断开 = worker 被回收或崩溃。必须报错，
+    // 否则调用方会把"什么都没拿到"当成核查成功，按钮显示已核查却没有卡片。
+    if (!completed) {
+      failure = new FactCheckError(
+        "核查意外中断（后台进程被浏览器回收），请重试",
+        "worker_gone",
+      );
+    }
     finished = true;
     pump();
   });

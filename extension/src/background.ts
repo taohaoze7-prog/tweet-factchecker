@@ -43,6 +43,18 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg: { type?: string; request?: FactCheckRequest }) => {
     if (!msg || msg.type !== "request" || !msg.request) return;
 
+    // MV3 的 service worker 闲置 30s 即被回收。一次核查要 100~200s，而联网搜证
+    // 那段可能几十秒不产生任何事件——worker 被杀 → port 断开 → 核查静默流产。
+    // 定期发心跳，既重置闲置计时器，也让前端能显示"仍在进行"。
+    const heartbeat = setInterval(() => {
+      if (closed) return;
+      try {
+        port.postMessage({ type: "ping" });
+      } catch {
+        /* port 已断，下一轮由 closed 拦住 */
+      }
+    }, 20_000);
+
     try {
       const apiKey = await getApiKey();
       if (!apiKey) {
@@ -64,6 +76,8 @@ chrome.runtime.onConnect.addListener((port) => {
       if (closed) return;
       const { message, kind } = describe(e);
       port.postMessage({ type: "error", message, kind });
+    } finally {
+      clearInterval(heartbeat);
     }
   });
 });
