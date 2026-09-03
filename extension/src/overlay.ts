@@ -1,10 +1,22 @@
-// 浮层渲染：把 FactCheckResult 渲染成推文下方的核查卡片。
-// frontend worktree 负责样式与交互。所有文本走 textContent，杜绝注入。
+// 核查卡渲染（Cinematic Intelligence）。
+// P1 地基：整卡挂进 Shadow DOM，样式与 X 彻底隔离；令牌系统 + 主题探测。
+// P2 静态卡：辉光玻璃面 + 环形可信度仪表 + 大裁决。动效见 P3。
+// 所有文本走 textContent，杜绝注入；仅纯数字/静态 SVG 用 innerHTML。
 
 import type { Claim, ClaimResult, FactCheckResult, Stance, Verdict } from "./types";
+import { recordFeedback } from "./api";
 
-const OVERLAY_CLASS = "fc-overlay";
-const STYLE_ID = "fc-style";
+const HOST_CLASS = "fc-host";
+
+/** 仅 http(s) 可作为 href——挡住 javascript:/data: 等可执行伪协议。*/
+function isHttpUrl(u: string): boolean {
+  try {
+    const p = new URL(u);
+    return p.protocol === "http:" || p.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 const VERDICT_LABEL: Record<Verdict, string> = {
   true: "属实",
@@ -15,314 +27,605 @@ const VERDICT_LABEL: Record<Verdict, string> = {
   unverifiable: "无法核实",
 };
 
+const VERDICT_EN: Record<Verdict, string> = {
+  true: "True",
+  mostly_true: "Mostly True",
+  mixed: "Mixed",
+  mostly_false: "Mostly False",
+  false: "False",
+  unverifiable: "Unverifiable",
+};
+
 const VERDICT_COLOR: Record<Verdict, string> = {
-  true: "#1a7f37",
-  mostly_true: "#3fb950",
-  mixed: "#d29922",
-  mostly_false: "#db6d28",
-  false: "#cf222e",
-  unverifiable: "#6e7781",
+  true: "#3fe08a",
+  mostly_true: "#46d6b4",
+  mixed: "#f2c14e",
+  mostly_false: "#ff9a4d",
+  false: "#ff5860",
+  unverifiable: "#8a93a0",
 };
 
 const STANCE_LABEL: Record<Stance, string> = {
-  supports: "支持",
-  refutes: "反驳",
-  neutral: "中立",
+  supports: "Supports",
+  refutes: "Refutes",
+  neutral: "Neutral",
 };
 
-/** 把 0~1 的置信度转成一位小数的"可信分"，如 0.352 → "35.2"。*/
-function toScore(confidence: number): string {
-  return (confidence * 100).toFixed(1);
+const NEUTRAL = VERDICT_COLOR.unverifiable;
+const RING_C = 2 * Math.PI * 50; // r=50
+
+function pct(conf: number): number {
+  return Math.round(Math.max(0, Math.min(1, conf)) * 100);
 }
 
-/** 注入一次全局样式（content script 启动时调用）。*/
-export function injectStyles(): void {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-    .${"fc-check-btn"} {
-      cursor: pointer;
-      border: 1px solid #536471;
-      background: transparent;
-      color: #1d9bf0;
-      border-radius: 9999px;
-      padding: 2px 12px;
-      font-size: 13px;
-      font-weight: 600;
-      margin-left: 8px;
-      line-height: 1.4;
-    }
-    .${"fc-check-btn"}:hover { background: rgba(29,155,240,0.1); }
-    .${"fc-check-btn"}:disabled { opacity: 0.6; cursor: default; }
-
-    .${OVERLAY_CLASS} {
-      margin: 10px 0;
-      border: 1px solid #2f3336;
-      border-radius: 14px;
-      background: #16181c;
-      color: #e7e9ea;
-      font-size: 13px;
-      line-height: 1.5;
-      overflow: hidden;
-    }
-    .${OVERLAY_CLASS} .fc-head {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 14px;
-      border-bottom: 1px solid #2f3336;
-    }
-    .${OVERLAY_CLASS} .fc-score {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-width: 64px;
-    }
-    .${OVERLAY_CLASS} .fc-score b { font-size: 26px; line-height: 1; }
-    .${OVERLAY_CLASS} .fc-score span { font-size: 11px; color: #71767b; margin-top: 2px; }
-    .${OVERLAY_CLASS} .fc-badge {
-      align-self: flex-start;
-      padding: 2px 10px;
-      border-radius: 9999px;
-      color: #fff;
-      font-weight: 700;
-      font-size: 12px;
-    }
-    .${OVERLAY_CLASS} .fc-summary { margin: 6px 0 0; color: #c9ccd1; }
-    .${OVERLAY_CLASS} .fc-claims { padding: 10px 14px; }
-    .${OVERLAY_CLASS} .fc-claim {
-      padding: 8px 0;
-      border-top: 1px dashed #2f3336;
-    }
-    .${OVERLAY_CLASS} .fc-claim:first-child { border-top: none; }
-    .${OVERLAY_CLASS} .fc-claim-head { display: flex; align-items: center; gap: 8px; }
-    .${OVERLAY_CLASS} .fc-claim-verdict { font-weight: 700; }
-    .${OVERLAY_CLASS} .fc-claim-text { margin: 4px 0; color: #e7e9ea; }
-    .${OVERLAY_CLASS} .fc-evidence { margin: 4px 0 0; padding-left: 16px; color: #aeb3b8; }
-    .${OVERLAY_CLASS} .fc-evidence li { margin: 2px 0; }
-    .${OVERLAY_CLASS} .fc-evidence a { color: #1d9bf0; text-decoration: none; }
-    .${OVERLAY_CLASS} .fc-foot {
-      padding: 8px 14px;
-      border-top: 1px solid #2f3336;
-      color: #71767b;
-      font-size: 11px;
-      display: flex;
-      justify-content: space-between;
-    }
-    .${OVERLAY_CLASS}.fc-error { border-color: #cf222e; }
-    .${OVERLAY_CLASS} .fc-error-msg { padding: 12px 14px; color: #f0a0a0; }
-  `;
-  (document.head ?? document.documentElement).appendChild(style);
+function prefersReduced(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    !!window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
-/** 移除推文上已有的卡片（重复核查时刷新）。*/
-function clearExisting(anchor: HTMLElement): void {
-  anchor.querySelectorAll(`:scope > .${OVERLAY_CLASS}`).forEach((n) => n.remove());
+/** easeOutCubic 补间，rAF 驱动；onUpdate 收到 0→1 的进度。*/
+function tween(duration: number, onUpdate: (eased: number) => void): void {
+  const start = performance.now();
+  const frame = (now: number): void => {
+    const p = Math.min(1, (now - start) / duration);
+    onUpdate(1 - Math.pow(1 - p, 3));
+    if (p < 1) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
 }
 
-function buildBadge(verdict: Verdict): HTMLElement {
-  const badge = document.createElement("span");
-  badge.className = "fc-badge";
-  badge.textContent = VERDICT_LABEL[verdict];
-  badge.style.background = VERDICT_COLOR[verdict];
-  return badge;
+/** 读 X 的正文背景亮度判明暗（X 主题独立于系统主题）。*/
+function detectTheme(): "dark" | "light" {
+  try {
+    const bg = getComputedStyle(document.body).backgroundColor;
+    const m = bg.match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+    if (m) {
+      const lum =
+        (0.2126 * +m[1] + 0.7152 * +m[2] + 0.0722 * +m[3]) / 255;
+      return lum > 0.5 ? "light" : "dark";
+    }
+  } catch {
+    /* noop */
+  }
+  return "dark";
 }
 
-function buildClaim(cr: ClaimResult): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "fc-claim";
+const CARD_CSS = `
+:host {
+  all: initial;
+  display: block;
+  --ink: #f3f4f6; --ink-2: #a6adb6; --ink-3: #686f78;
+  --glass-top: rgba(255,255,255,0.055); --glass-bot: rgba(255,255,255,0.012);
+  --card-base: #0d0e11;
+  --hair: rgba(255,255,255,0.09); --hair-2: rgba(255,255,255,0.05);
+  --track: rgba(255,255,255,0.07);
+  --accent: ${NEUTRAL};
+  --display: "Fraunces","Georgia","Songti SC","Times New Roman",serif;
+  --mono: "IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans: -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",system-ui,sans-serif;
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+:host([data-theme="light"]) {
+  --ink: #15181c; --ink-2: #41474e; --ink-3: #767d85;
+  --glass-top: rgba(0,0,0,0.02); --glass-bot: rgba(0,0,0,0.005);
+  --card-base: #ffffff;
+  --hair: rgba(0,0,0,0.1); --hair-2: rgba(0,0,0,0.06);
+  --track: rgba(0,0,0,0.08);
+}
+* { box-sizing: border-box; }
 
-  const head = document.createElement("div");
-  head.className = "fc-claim-head";
-  const verdict = document.createElement("span");
-  verdict.className = "fc-claim-verdict";
-  verdict.textContent = VERDICT_LABEL[cr.final_verdict];
-  verdict.style.color = VERDICT_COLOR[cr.final_verdict];
-  const conf = document.createElement("span");
-  conf.textContent = `${toScore(cr.final_confidence)}分`;
-  conf.style.color = "#71767b";
-  head.append(verdict, conf);
+.fc-wrap { position: relative; margin: 14px 0 6px; animation: fcCardIn .42s cubic-bezier(.2,.7,.2,1) both; }
+.fc-glow {
+  position: absolute; inset: -2px -10px -30px; border-radius: 26px; z-index: 0;
+  filter: blur(40px); opacity: .45; pointer-events: none;
+  background: radial-gradient(60% 80% at 50% 0%, var(--accent), transparent 70%);
+  transition: opacity .5s ease, background .5s ease;
+}
+.fc {
+  position: relative; z-index: 1; border-radius: 18px; overflow: hidden;
+  background: linear-gradient(180deg, var(--glass-top), var(--glass-bot)), var(--card-base);
+  border: 1px solid var(--hair);
+  box-shadow: 0 1px 0 rgba(255,255,255,.05) inset, 0 30px 70px -28px rgba(0,0,0,.85);
+  backdrop-filter: blur(8px);
+  font-size: 14px; color: var(--ink);
+}
+.fc-edge {
+  height: 2px; width: 100%;
+  background: linear-gradient(90deg, transparent, var(--accent) 30%, var(--accent) 70%, transparent);
+  box-shadow: 0 0 14px var(--accent); opacity: .9;
+  transition: background .5s ease, box-shadow .5s ease;
+}
 
-  const text = document.createElement("p");
-  text.className = "fc-claim-text";
+.fc-mast {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 12px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .18em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+.fc-mast .brand { display: flex; align-items: center; gap: 9px; color: var(--ink-2); }
+.fc-mast .brand .mark { color: var(--accent); font-size: 13px; transition: color .5s ease; }
+.fc-mast .brand b { font-weight: 600; letter-spacing: .2em; }
+.fc-mast .brand .sub { color: var(--ink-3); letter-spacing: .12em; }
+
+.fc-hero { display: flex; align-items: center; gap: 20px; padding: 8px 20px 18px; }
+.gauge { position: relative; width: 112px; height: 112px; flex: none; }
+.gauge svg { transform: rotate(-90deg); display: block; }
+.gauge .track { fill: none; stroke: var(--track); stroke-width: 6; }
+.gauge .val {
+  fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round;
+  filter: drop-shadow(0 0 5px var(--accent));
+  transition: stroke .5s ease;
+}
+.gauge .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.gauge .center .n { font-family: var(--display); font-weight: 400; font-size: 38px; line-height: .9; letter-spacing: -.02em; color: var(--ink); }
+.gauge .center .n sup { font-size: 15px; color: var(--ink-3); top: -.9em; margin-left: 1px; }
+.gauge .center .lbl { font-family: var(--mono); font-size: 8.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--ink-3); margin-top: 3px; }
+
+.fc-hero-text { flex: 1; min-width: 0; }
+.fc-verdict { font-family: var(--display); font-weight: 500; font-size: 40px; line-height: 1; letter-spacing: -.015em; color: var(--accent); margin: 2px 0 0; transition: color .5s ease; }
+.fc-verdict-en { font-family: var(--mono); font-size: 11px; letter-spacing: .26em; text-transform: uppercase; color: var(--ink-3); margin-top: 9px; }
+.fc-verdict-note { font-size: 12.5px; color: var(--ink-3); margin-top: 8px; }
+.fc-verdict-note .bar { color: var(--accent); }
+
+.fc-summary { padding: 0 20px 16px; font-size: 14px; line-height: 1.66; color: var(--ink-2); }
+.fc-summary::before { content: ""; display: block; height: 1px; margin: 0 0 16px; background: linear-gradient(90deg, var(--hair), transparent); }
+
+.fc-claims { padding: 2px 20px 8px; }
+.fc-claim { padding: 14px 0; border-top: 1px solid var(--hair-2); }
+.fc-claim:first-child { border-top: none; }
+.fc-claim-row { display: flex; align-items: baseline; gap: 13px; }
+.fc-no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); flex: none; padding-top: 2px; }
+.fc-ctext { flex: 1; font-size: 14.5px; line-height: 1.5; }
+.fc-tag {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 500; white-space: nowrap;
+  color: var(--vc); border: 1px solid color-mix(in srgb, var(--vc) 35%, transparent);
+  background: color-mix(in srgb, var(--vc) 12%, transparent);
+}
+.fc-tag .pct { font-family: var(--mono); font-size: 10.5px; opacity: .8; }
+
+.fc-ev { margin: 11px 0 0 24px; display: grid; gap: 9px; }
+.fc-ev-item { padding-left: 13px; border-left: 2px solid var(--sc); }
+.fc-ev-h { font-size: 12.5px; }
+.fc-ev-h .st { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--sc); margin-right: 7px; }
+.fc-ev-h a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--ink-3); }
+.fc-ev-h a:hover { border-bottom-color: var(--ink); }
+.fc-ev-h .ar { color: var(--ink-3); }
+.fc-ev-s { font-size: 12px; line-height: 1.55; color: var(--ink-3); margin-top: 4px; }
+.fc-concern { margin: 10px 0 0 24px; font-size: 12px; color: var(--ink-3); }
+.fc-concern .mk { color: ${VERDICT_COLOR.mixed}; }
+
+.fc-foot {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 20px; margin-top: 4px; border-top: 1px solid var(--hair-2);
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3);
+}
+.fc-foot .dots { color: color-mix(in srgb, var(--accent) 70%, var(--ink-3)); }
+
+/* 反馈 👍/👎 */
+.fc-fb { display: flex; align-items: center; gap: 8px; padding: 2px 20px 14px; }
+.fc-fb-q { font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--ink-3); }
+.fc-fb-btn {
+  cursor: pointer; background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border: 1px solid var(--hair-2); border-radius: 7px; padding: 1px 9px;
+  font-size: 14px; line-height: 1.5; color: var(--ink-2);
+}
+.fc-fb-btn:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); }
+.fc-fb-done { font-family: var(--mono); font-size: 11px; letter-spacing: .04em; color: var(--accent); }
+
+/* 骨架 / 加载 */
+.fc-skel { height: 11px; border-radius: 3px; background: var(--hair); animation: fcpulse 1.3s ease-in-out infinite; }
+.fc-skel.short { width: 38%; }
+@keyframes fcpulse { 0%,100% { opacity: .35; } 50% { opacity: .85; } }
+.gauge.loading .center .n { color: var(--ink-3); animation: fcpulse 1.3s ease-in-out infinite; }
+
+/* 入场 / 逐条落定 */
+.fc-claim.resolve { animation: fcClaimIn .42s cubic-bezier(.2,.7,.2,1) both; }
+.fc-claim.resolve .fc-tag { animation: fcTagPop .42s .06s cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes fcCardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fcClaimIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fcTagPop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+
+/* 错误态 */
+.fc.error { border-color: ${VERDICT_COLOR.false}; }
+.fc .fc-err { padding: 16px 20px; color: ${VERDICT_COLOR.false}; font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-glow, .fc-edge, .fc-verdict, .gauge .val, .fc-mast .brand .mark { transition: none; }
+  .fc-skel, .gauge.loading .center .n,
+  .fc-wrap, .fc-claim.resolve, .fc-claim.resolve .fc-tag { animation: none; }
+}
+`;
+
+function gaugeSVG(value: number): string {
+  const dash = (Math.max(0, Math.min(1, value)) * RING_C).toFixed(1);
+  return (
+    `<svg width="112" height="112" viewBox="0 0 112 112">` +
+    `<circle class="track" cx="56" cy="56" r="50"></circle>` +
+    `<circle class="val" cx="56" cy="56" r="50" stroke-dasharray="${dash} ${RING_C.toFixed(2)}"></circle>` +
+    `</svg>`
+  );
+}
+
+function gaugeCenter(label: string, sup = ""): HTMLElement {
+  const c = document.createElement("div");
+  c.className = "center";
+  const n = document.createElement("div");
+  n.className = "n";
+  n.textContent = label;
+  if (sup) {
+    const s = document.createElement("sup");
+    s.textContent = sup;
+    n.appendChild(s);
+  }
+  const l = document.createElement("div");
+  l.className = "lbl";
+  l.textContent = "可信度";
+  c.append(n, l);
+  return c;
+}
+
+function buildClaimRow(cr: ClaimResult): HTMLElement {
+  const claim = document.createElement("div");
+  claim.className = "fc-claim";
+
+  const row = document.createElement("div");
+  row.className = "fc-claim-row";
+  const no = document.createElement("span");
+  no.className = "fc-no";
+  no.textContent = cr.claim.id.replace(/^c/, "").padStart(2, "0");
+  const text = document.createElement("span");
+  text.className = "fc-ctext";
   text.textContent = cr.claim.text;
-
-  wrap.append(head, text);
+  const tag = document.createElement("span");
+  tag.className = "fc-tag";
+  tag.style.setProperty("--vc", VERDICT_COLOR[cr.final_verdict]);
+  tag.textContent = VERDICT_LABEL[cr.final_verdict];
+  const p = document.createElement("span");
+  p.className = "pct";
+  p.textContent = `${pct(cr.final_confidence)}%`;
+  tag.appendChild(p);
+  row.append(no, text, tag);
+  claim.appendChild(row);
 
   if (cr.evaluation.evidence.length > 0) {
-    const ul = document.createElement("ul");
-    ul.className = "fc-evidence";
-    for (const ev of cr.evaluation.evidence) {
-      const li = document.createElement("li");
-      const link = document.createElement("a");
-      link.href = ev.source_url;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = ev.title || ev.source_url;
-      li.append(
-        document.createTextNode(`[${STANCE_LABEL[ev.stance]}] `),
-        link,
-        document.createTextNode(` — ${ev.snippet}`)
-      );
-      ul.appendChild(li);
+    const ev = document.createElement("div");
+    ev.className = "fc-ev";
+    for (const e of cr.evaluation.evidence) {
+      const item = document.createElement("div");
+      item.className = "fc-ev-item";
+      item.style.setProperty("--sc", VERDICT_COLOR[e.stance === "refutes" ? "false" : e.stance === "supports" ? "true" : "unverifiable"]);
+      const h = document.createElement("div");
+      h.className = "fc-ev-h";
+      const st = document.createElement("span");
+      st.className = "st";
+      st.textContent = STANCE_LABEL[e.stance];
+      // 只把 http(s) 交给 href。引擎侧已过滤，这里是纵深防御的最后一道：
+      // 模型输出经推文内容影响，一条诱导它写出 javascript: 的推文
+      // 就能变成卡片里可点击的 XSS。协议不合法就退化成纯文本。
+      const a = document.createElement(isHttpUrl(e.source_url) ? "a" : "span");
+      if (a instanceof HTMLAnchorElement) {
+        a.href = e.source_url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+      }
+      a.textContent = e.title || e.source_url;
+      const ar = document.createElement("span");
+      ar.className = "ar";
+      ar.textContent = " ↗";
+      h.append(st, a, ar);
+      const s = document.createElement("div");
+      s.className = "fc-ev-s";
+      s.textContent = e.snippet;
+      item.append(h, s);
+      ev.appendChild(item);
     }
-    wrap.appendChild(ul);
+    claim.appendChild(ev);
   }
 
-  return wrap;
+  // 复核质疑（critic 不认可，或留有 concerns）
+  if (!cr.critique.approved || cr.critique.concerns.length > 0) {
+    const cc = document.createElement("div");
+    cc.className = "fc-concern";
+    const mk = document.createElement("span");
+    mk.className = "mk";
+    mk.textContent = "◆ 复核";
+    cc.append(mk, document.createTextNode(" " + (cr.critique.concerns[0] || "复核已通过")));
+    claim.appendChild(cc);
+  }
+
+  return claim;
 }
 
-/** 在推文节点下方渲染核查结果卡片。*/
-export function renderOverlay(
-  anchor: HTMLElement,
-  result: FactCheckResult
-): void {
-  injectStyles();
-  clearExisting(anchor);
-
-  const card = document.createElement("div");
-  card.className = OVERLAY_CLASS;
-
-  // ── 头部：可信分 + verdict 徽章 + 摘要 ──
-  const head = document.createElement("div");
-  head.className = "fc-head";
-
-  const score = document.createElement("div");
-  score.className = "fc-score";
-  const scoreNum = document.createElement("b");
-  scoreNum.textContent = toScore(result.overall_confidence); // 0.352 → "35.2"
-  scoreNum.style.color = VERDICT_COLOR[result.overall_verdict];
-  const scoreLbl = document.createElement("span");
-  scoreLbl.textContent = "可信分";
-  score.append(scoreNum, scoreLbl);
-
-  const headRight = document.createElement("div");
-  headRight.style.flex = "1";
-  headRight.appendChild(buildBadge(result.overall_verdict));
-  const summary = document.createElement("p");
-  summary.className = "fc-summary";
-  summary.textContent = result.summary;
-  headRight.appendChild(summary);
-
-  head.append(score, headRight);
-
-  // ── 逐条断言 ──
-  const claims = document.createElement("div");
-  claims.className = "fc-claims";
-  for (const cr of result.claims) claims.appendChild(buildClaim(cr));
-
-  // ── 脚部：模型版本 + 耗时 ──
-  const foot = document.createElement("div");
-  foot.className = "fc-foot";
-  const models = document.createElement("span");
-  models.textContent = Object.entries(result.model_versions)
-    .map(([k, v]) => `${k}:${v}`)
-    .join(" · ");
-  const timing = document.createElement("span");
-  timing.textContent = `${result.processing_ms}ms`;
-  foot.append(models, timing);
-
-  card.append(head, claims, foot);
-  anchor.appendChild(card);
-}
-
-/** 骨架行：断言已抽出、尚未评估完。*/
-function buildPendingClaim(claim: Claim): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "fc-claim";
-  const head = document.createElement("div");
-  head.className = "fc-claim-head";
-  const verdict = document.createElement("span");
-  verdict.className = "fc-claim-verdict";
-  verdict.textContent = "评估中…";
-  verdict.style.color = "#71767b";
-  head.appendChild(verdict);
-  const text = document.createElement("p");
-  text.className = "fc-claim-text";
+function buildSkeletonRow(claim: Claim): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "fc-claim";
+  const row = document.createElement("div");
+  row.className = "fc-claim-row";
+  const no = document.createElement("span");
+  no.className = "fc-no";
+  no.textContent = claim.id.replace(/^c/, "").padStart(2, "0");
+  const text = document.createElement("span");
+  text.className = "fc-ctext";
   text.textContent = claim.text;
-  wrap.append(head, text);
-  return wrap;
+  const skel = document.createElement("span");
+  skel.className = "fc-skel short";
+  skel.style.width = "64px";
+  row.append(no, text, skel);
+  el.appendChild(row);
+  return el;
 }
 
-/** 流式进度浮层：先出骨架，逐条填判定，done 时换成规范最终卡片。*/
-export class ProgressOverlay {
-  private readonly anchor: HTMLElement;
+/** 流式核查卡：挂 Shadow DOM，加载→骨架→逐条填→最终态。*/
+export class FactCard {
+  private readonly host: HTMLElement;
+  private readonly root: ShadowRoot;
+  private readonly wrap: HTMLElement;
+  private readonly fc: HTMLElement;
+  private readonly gauge: HTMLElement;
+  private readonly verdict: HTMLElement;
+  private readonly verdictEn: HTMLElement;
+  private readonly note: HTMLElement;
+  private readonly summary: HTMLElement;
   private readonly claimsBox: HTMLElement;
-  private readonly status: HTMLElement;
+  private readonly foot: HTMLElement;
   private readonly rows = new Map<string, HTMLElement>();
+  private readonly tweetText: string;
+  private startedAt = 0;
+  private tick: number | undefined;
 
-  constructor(anchor: HTMLElement) {
-    this.anchor = anchor;
-    injectStyles();
-    clearExisting(anchor);
+  constructor(anchor: HTMLElement, tweetText: string) {
+    this.tweetText = tweetText;
+    // 去掉本推文已有的卡（紧随 article 的兄弟节点），避免重复
+    let sib = anchor.nextElementSibling;
+    while (sib && sib.classList.contains(HOST_CLASS)) {
+      const next = sib.nextElementSibling;
+      sib.remove();
+      sib = next;
+    }
 
-    const card = document.createElement("div");
-    card.className = OVERLAY_CLASS;
+    this.host = document.createElement("div");
+    this.host.className = HOST_CLASS;
+    this.host.setAttribute("data-theme", detectTheme());
+    this.root = this.host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = CARD_CSS;
+    this.root.appendChild(style);
 
-    const head = document.createElement("div");
-    head.className = "fc-head";
-    const score = document.createElement("div");
-    score.className = "fc-score";
-    const num = document.createElement("b");
-    num.textContent = "…";
-    num.style.color = "#71767b";
-    const lbl = document.createElement("span");
-    lbl.textContent = "核查中";
-    score.append(num, lbl);
-    const right = document.createElement("div");
-    right.style.flex = "1";
-    this.status = document.createElement("p");
-    this.status.className = "fc-summary";
-    this.status.textContent = "正在抽取断言…";
-    right.appendChild(this.status);
-    head.append(score, right);
+    // 卡片骨架
+    this.wrap = document.createElement("div");
+    this.wrap.className = "fc-wrap";
+    const glow = document.createElement("div");
+    glow.className = "fc-glow";
+    this.fc = document.createElement("div");
+    this.fc.className = "fc";
+    // 无障碍：核查是异步的，结论在数十秒后才落定。用 role=status + polite
+    // 让读屏软件在结果就绪时播报，而不是让用户对着静默的卡片干等。
+    // polite 而非 assertive——不打断用户当前正在读的内容。
+    this.fc.setAttribute("role", "status");
+    this.fc.setAttribute("aria-live", "polite");
+    this.fc.setAttribute("aria-label", "推文事实核查结果");
+
+    const edge = document.createElement("div");
+    edge.className = "fc-edge";
+
+    const mast = document.createElement("div");
+    mast.className = "fc-mast";
+    mast.innerHTML =
+      `<div class="brand"><span class="mark">◇</span><b>FACTCHECK</b><span class="sub">/ 事实核查</span></div>`;
+    const metaSpan = document.createElement("div");
+    metaSpan.className = "meta";
+    mast.appendChild(metaSpan);
+    this.foot = document.createElement("div");
+
+    const hero = document.createElement("div");
+    hero.className = "fc-hero";
+    this.gauge = document.createElement("div");
+    this.gauge.className = "gauge loading";
+    this.gauge.innerHTML = gaugeSVG(0);
+    this.gauge.appendChild(gaugeCenter("···"));
+    const heroText = document.createElement("div");
+    heroText.className = "fc-hero-text";
+    this.verdict = document.createElement("div");
+    this.verdict.className = "fc-verdict";
+    this.verdict.textContent = "核查中";
+    this.verdictEn = document.createElement("div");
+    this.verdictEn.className = "fc-verdict-en";
+    this.verdictEn.textContent = "Analyzing";
+    this.note = document.createElement("div");
+    this.note.className = "fc-verdict-note";
+    this.note.textContent = "正在抽取断言…";
+    heroText.append(this.verdict, this.verdictEn, this.note);
+    hero.append(this.gauge, heroText);
+
+    this.summary = document.createElement("div");
+    this.summary.className = "fc-summary";
+    this.summary.style.display = "none";
 
     this.claimsBox = document.createElement("div");
     this.claimsBox.className = "fc-claims";
 
-    card.append(head, this.claimsBox);
-    anchor.appendChild(card);
+    this.fc.append(edge, mast, hero, this.summary, this.claimsBox);
+    this.wrap.append(glow, this.fc);
+    this.root.appendChild(this.wrap);
+    // 挂到推文之后（兄弟节点）→ 通栏落在推文下方，而非被 article 的 flex 挤到右侧
+    anchor.insertAdjacentElement("afterend", this.host);
+
+    this.timing = metaSpan;
+
+    // 实时秒表：让长时间核查（冷启动可达 1–2 分钟）看得见在动，而非冻住
+    this.startedAt = performance.now();
+    this.timing.textContent = "◷ 0s";
+    this.tick = window.setInterval(() => {
+      const s = Math.floor((performance.now() - this.startedAt) / 1000);
+      this.timing.textContent = `◷ ${s}s`;
+    }, 1000);
   }
 
-  /** 收到断言骨架：渲染待评估行。*/
+  private readonly timing: HTMLElement;
+
+  private stopTick(): void {
+    if (this.tick !== undefined) {
+      clearInterval(this.tick);
+      this.tick = undefined;
+    }
+  }
+
   setClaims(claims: Claim[]): void {
-    this.status.textContent = claims.length
-      ? `核查 ${claims.length} 条断言…`
+    this.note.textContent = claims.length
+      ? `正在联网搜证 ${claims.length} 条断言…`
       : "未发现可核查断言。";
     this.claimsBox.replaceChildren();
     this.rows.clear();
     for (const c of claims) {
-      const row = buildPendingClaim(c);
+      const row = buildSkeletonRow(c);
       this.rows.set(c.id, row);
       this.claimsBox.appendChild(row);
     }
   }
 
-  /** 某条断言评完：用实际结果替换其骨架行。*/
   resolveClaim(cr: ClaimResult): void {
-    const filled = buildClaim(cr);
+    const filled = buildClaimRow(cr);
+    filled.classList.add("resolve"); // 落定动效（reduced-motion 下自动停用）
     const row = this.rows.get(cr.claim.id);
     if (row) row.replaceWith(filled);
     else this.claimsBox.appendChild(filled);
     this.rows.set(cr.claim.id, filled);
   }
 
-  /** 全部完成：替换为规范最终卡片（可信分头部 + 脚部模型/耗时）。*/
   finalize(result: FactCheckResult): void {
-    renderOverlay(this.anchor, result);
-  }
-}
+    this.stopTick();
+    const v = result.overall_verdict;
+    const color = VERDICT_COLOR[v];
+    this.wrap.style.setProperty("--accent", color);
 
-/** 核查失败时渲染错误卡片。*/
-export function renderError(anchor: HTMLElement, err: unknown): void {
-  injectStyles();
-  clearExisting(anchor);
-  const card = document.createElement("div");
-  card.className = `${OVERLAY_CLASS} fc-error`;
-  const msg = document.createElement("div");
-  msg.className = "fc-error-msg";
-  msg.textContent = `核查失败：${err instanceof Error ? err.message : String(err)}`;
-  card.appendChild(msg);
-  anchor.appendChild(card);
+    // 仪表弧描边 + 可信分 count-up（招牌时刻）
+    const conf = result.overall_confidence;
+    const target = pct(conf);
+    const reduced = prefersReduced();
+    this.gauge.className = "gauge";
+    this.gauge.innerHTML = gaugeSVG(reduced ? conf : 0);
+    const center = gaugeCenter(reduced ? String(target) : "0", "%");
+    this.gauge.appendChild(center);
+    if (!reduced) {
+      const val = this.gauge.querySelector(".val");
+      const numNode = center.querySelector(".n")?.firstChild ?? null;
+      tween(820, (e) => {
+        if (val)
+          val.setAttribute(
+            "stroke-dasharray",
+            `${(conf * e * RING_C).toFixed(1)} ${RING_C.toFixed(2)}`
+          );
+        if (numNode) numNode.textContent = String(Math.round(target * e));
+      });
+    }
+
+    this.verdict.textContent = VERDICT_LABEL[v];
+    this.verdictEn.textContent = VERDICT_EN[v];
+    this.note.innerHTML = "";
+    const bar = document.createElement("span");
+    bar.className = "bar";
+    bar.textContent = "▾ ";
+    this.note.append(bar, document.createTextNode(`综合 ${result.claims.length} 条断言`));
+
+    if (result.summary) {
+      this.summary.textContent = result.summary;
+      this.summary.style.display = "";
+    }
+
+    const secs = ((result.processing_ms ?? 0) / 1000).toFixed(1);
+    this.timing.textContent = `◷ ${secs}s`;
+
+    // 脚注：模型 + 来源数 + 耗时（边界兜底，防 mock/异常数据缺字段）
+    const evCount = result.claims.reduce(
+      (n, c) => n + (c.evaluation.evidence?.length ?? 0),
+      0
+    );
+    this.foot.className = "fc-foot";
+    const models = Object.values(result.model_versions ?? {});
+    const left = document.createElement("span");
+    left.innerHTML = `<span class="dots">●</span> `;
+    left.append(document.createTextNode(models.length ? models.join(" · ") : "—"));
+    const right = document.createElement("span");
+    right.textContent = `来源 ${evCount} · ${secs}s`;
+    this.foot.replaceChildren(left, right);
+    if (!this.foot.parentElement) this.fc.appendChild(this.foot);
+
+    this.renderFeedback(result);
+  }
+
+  /** 卡片底部 👍/👎，点了即上报并致谢。*/
+  private renderFeedback(result: FactCheckResult): void {
+    const fb = document.createElement("div");
+    fb.className = "fc-fb";
+    const q = document.createElement("span");
+    q.className = "fc-fb-q";
+    q.textContent = "这条核查有用吗？";
+    fb.appendChild(q);
+
+    const mkBtn = (label: string, rating: "up" | "down"): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.className = "fc-fb-btn";
+      b.type = "button";
+      b.textContent = label;
+      b.addEventListener("click", () => {
+        const done = document.createElement("span");
+        done.className = "fc-fb-done";
+        done.textContent = "✓ 谢谢反馈";
+        fb.replaceChildren(done);
+        void recordFeedback({
+          tweet_id: result.tweet_id,
+          text: this.tweetText,
+          our_verdict: result.overall_verdict,
+          our_confidence: result.overall_confidence,
+          rating,
+          models: result.model_versions ?? {},
+        });
+      });
+      return b;
+    };
+    fb.append(mkBtn("👍", "up"), mkBtn("👎", "down"));
+    this.fc.appendChild(fb);
+  }
+
+  error(err: unknown): void {
+    this.stopTick();
+    this.wrap.style.setProperty("--accent", VERDICT_COLOR.false);
+    this.fc.classList.add("error");
+    const msg = document.createElement("div");
+    msg.className = "fc-err";
+    msg.textContent = `核查失败：${err instanceof Error ? err.message : String(err)}`;
+    this.fc.replaceChildren(msg);
+  }
+
+  /** 未配置 API Key 的引导态：不是报错，是「还差一步」，所以给按钮而非红字。*/
+  needsSetup(onOpen: () => void): void {
+    this.stopTick();
+    this.wrap.style.setProperty("--accent", VERDICT_COLOR.unverifiable);
+
+    const box = document.createElement("div");
+    box.className = "fc-err";
+
+    const line = document.createElement("div");
+    line.textContent = "还差一步：本扩展用你自己的 Anthropic API Key 运行。";
+    const sub = document.createElement("div");
+    sub.style.cssText = "opacity:.72;margin-top:6px;font-size:12.5px";
+    sub.textContent = "密钥只存在本机，不经过任何第三方服务器。";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "打开设置";
+    btn.style.cssText =
+      "margin-top:12px;padding:7px 16px;border-radius:8px;cursor:pointer;" +
+      "border:1px solid var(--accent);background:transparent;color:var(--accent);" +
+      "font-size:13px;font-weight:600";
+    btn.addEventListener("click", onOpen);
+
+    box.append(line, sub, btn);
+    this.fc.replaceChildren(box);
+  }
 }

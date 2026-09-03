@@ -1,12 +1,19 @@
 // Content script：抓推文 + 注入"核查"按钮 + 触发浮层。
 // frontend worktree 的主战场。
 
-import { factCheckStream } from "./api";
-import { injectStyles, ProgressOverlay, renderError } from "./overlay";
+import { factCheckStream, IS_MOCK } from "./api";
+import { FactCard } from "./overlay";
 import type { FactCheckRequest } from "./types";
 
 const BUTTON_CLASS = "fc-check-btn";
 const PROCESSED_ATTR = "data-fc-processed";
+
+// 诊断日志走构建期开关：mock 构建（开发）开，上线构建自动关。
+// 用 const 而非运行时变量，让打包器把整段 log 调用直接消除。
+const DEBUG = IS_MOCK;
+const log = (...a: unknown[]): void => {
+  if (DEBUG) console.info("[factchecker]", ...a);
+};
 
 /** 从 X/Twitter status 链接里解析 tweet_id（/<user>/status/<id>）。*/
 function extractTweetId(article: HTMLElement): string | null {
@@ -56,6 +63,25 @@ function findActionBar(article: HTMLElement): HTMLElement {
   );
 }
 
+/** 行内样式按钮（不依赖全局样式表，杜绝污染 X）。*/
+function styleButton(btn: HTMLButtonElement): void {
+  const s = btn.style;
+  s.cursor = "pointer";
+  s.border = "1px solid rgba(63,224,138,0.35)";
+  s.background = "rgba(63,224,138,0.08)";
+  s.color = "#3fe08a";
+  s.borderRadius = "999px";
+  s.padding = "2px 12px";
+  s.fontSize = "13px";
+  s.fontWeight = "600";
+  s.marginLeft = "8px";
+  s.lineHeight = "1.5";
+  s.fontFamily = "-apple-system,BlinkMacSystemFont,system-ui,sans-serif";
+  s.transition = "background .15s ease";
+  btn.onmouseenter = () => (s.background = "rgba(63,224,138,0.16)");
+  btn.onmouseleave = () => (s.background = "rgba(63,224,138,0.08)");
+}
+
 /** 给一个推文节点注入核查按钮。*/
 function injectButton(article: HTMLElement): void {
   if (article.querySelector(`.${BUTTON_CLASS}`)) return; // 防重复注入
@@ -64,28 +90,43 @@ function injectButton(article: HTMLElement): void {
   btn.className = BUTTON_CLASS;
   btn.type = "button";
   btn.textContent = "✓ 核查";
+  // ✓ 是装饰符号，读屏会念成"对勾"；显式给出语义标签。
+  btn.setAttribute("aria-label", "核查这条推文的事实性断言");
+  styleButton(btn);
   btn.addEventListener("click", async (e) => {
     e.preventDefault();
     e.stopPropagation();
     const req = extractTweet(article);
     if (!req) return;
     btn.disabled = true;
+    btn.style.opacity = "0.6";
     btn.textContent = "核查中…";
-    const progress = new ProgressOverlay(article);
+    const card = new FactCard(article, req.text);
     try {
       // 渐进消费：claims 出骨架 → 每条 claim 填行 → done 换最终卡片。
       for await (const event of factCheckStream(req)) {
-        if (event.type === "claims") progress.setClaims(event.claims);
-        else if (event.type === "claim") progress.resolveClaim(event.result);
-        else if (event.type === "done") progress.finalize(event.result);
+        if (event.type === "claims") card.setClaims(event.claims);
+        else if (event.type === "claim") card.resolveClaim(event.result);
+        else if (event.type === "done") card.finalize(event.result);
         else if (event.type === "error") throw new Error(event.message);
       }
       btn.textContent = "✓ 已核查";
+      btn.style.opacity = "1";
     } catch (err) {
-      console.error("[factchecker]", err);
-      renderError(article, err);
+      log("核查失败", err);
+      // 未配置 Key 不是"失败"，是没装好——给一条能直接点进设置页的路径，
+      // 而不是让用户对着报错自己猜。
+      const kind = (err as { kind?: string })?.kind;
+      if (kind === "no_key") {
+        card.needsSetup(() => {
+          void chrome.runtime.sendMessage({ type: "open_options" });
+        });
+      } else {
+        card.error(err);
+      }
       btn.textContent = "✗ 重试";
       btn.disabled = false;
+      btn.style.opacity = "1";
     }
   });
 
@@ -94,12 +135,17 @@ function injectButton(article: HTMLElement): void {
 
 /** 扫描当前 DOM 里所有未处理的推文并注入按钮。*/
 function scan(): void {
-  document
-    .querySelectorAll<HTMLElement>('article:not([' + PROCESSED_ATTR + "])")
-    .forEach((article) => {
-      article.setAttribute(PROCESSED_ATTR, "1");
-      injectButton(article);
-    });
+  const fresh = document.querySelectorAll<HTMLElement>(
+    'article:not([' + PROCESSED_ATTR + "])"
+  );
+  let injected = 0;
+  fresh.forEach((article) => {
+    article.setAttribute(PROCESSED_ATTR, "1");
+    const before = article.querySelector(`.${BUTTON_CLASS}`);
+    injectButton(article);
+    if (!before && article.querySelector(`.${BUTTON_CLASS}`)) injected++;
+  });
+  if (fresh.length) log(`扫描 ${fresh.length} 条推文，注入按钮 ${injected} 个`);
 }
 
 /** 监听时间线动态加载，对新出现的推文注入按钮。*/
@@ -109,5 +155,5 @@ function observe(): void {
   scan(); // 首屏已渲染的推文
 }
 
-injectStyles();
+log(`content script 已加载 · 模式=${IS_MOCK ? "MOCK(假数据)" : "REAL"} · 开始监听`);
 observe();

@@ -28,7 +28,7 @@ from llm.client import ClaudeClient
 logger = logging.getLogger(__name__)
 
 MODEL = "claude-sonnet-4-6"
-_WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search", "max_uses": 5}
+_WEB_SEARCH_TOOL = {"type": "web_search_20260209", "name": "web_search", "max_uses": 3}
 
 _RESEARCH_SYSTEM = """\
 你是事实核查管道的「搜证员」。给定一条可核查断言，用 web_search 联网搜集权威证据。

@@ -1,14 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Tweet FactChecker",
-  "version": "0.1.0",
-  "description": "在 X/Twitter 时间线上一键核查推文断言。",
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": [
-    "https://x.com/*",
-    "https://twitter.com/*",
-    "http://localhost:8000/*"
-  ],
+  "version": "0.2.0",
+  "description": "在 X/Twitter 上一键核查推文中的事实性断言：联网搜证、独立复核、给出可追溯来源的结论。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Tweet FactChecker 设置",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["https://api.anthropic.com/*"],
   "content_scripts": [
     {
       "matches": ["https://x.com/*", "https://twitter.com/*"],

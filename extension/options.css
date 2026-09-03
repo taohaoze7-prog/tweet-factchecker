@@ -1,0 +1,188 @@
+/* 设置页样式。沿用卡片的 Cinematic 视觉语言：深空底 + 玻璃卡 + 衬线标题。
+   与 overlay 分离——overlay 挂在 Shadow DOM 里，这里是独立页面，不共享样式。 */
+
+:root {
+  --bg: #0b0f17;
+  --panel: rgba(255, 255, 255, 0.04);
+  --line: rgba(255, 255, 255, 0.1);
+  --ink: #e8edf6;
+  --ink-dim: #94a1b8;
+  --accent: #6ea8fe;
+  --ok: #4ade80;
+  --err: #f87171;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 40px 20px;
+  background: radial-gradient(1200px 600px at 50% -10%, #16243c 0%, var(--bg) 60%);
+  color: var(--ink);
+  font:
+    15px/1.7 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Hiragino Sans GB",
+    sans-serif;
+  min-height: 100vh;
+}
+
+.shell {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.head {
+  margin-bottom: 28px;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-family: Fraunces, Georgia, "Songti SC", serif;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sub {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 14px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px;
+  margin-bottom: 16px;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.hint {
+  margin: 10px 0 0;
+  color: var(--ink-dim);
+  font-size: 13.5px;
+}
+
+.hint code {
+  background: rgba(255, 255, 255, 0.07);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12.5px;
+}
+
+a {
+  color: var(--accent);
+}
+
+.field {
+  margin-top: 16px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+input {
+  flex: 1;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+button {
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b1220;
+  font-weight: 600;
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--ink-dim);
+}
+
+.ghost:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.status {
+  margin: 12px 0 0;
+  font-size: 13.5px;
+  min-height: 20px;
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
+.status.err {
+  color: var(--err);
+}
+
+.status.busy {
+  color: var(--ink-dim);
+}
+
+/* 浅色系统偏好下保持可读：本页刻意维持深色，仅提高对比度。 */
+@media (prefers-color-scheme: light) {
+  :root {
+    --ink: #f2f5fa;
+    --ink-dim: #a8b4c8;
+  }
+}

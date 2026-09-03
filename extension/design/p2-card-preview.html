@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FactChecker · P2 静态卡预览（Editorial Authority）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* —— 编辑风暗色令牌 —— */
+    --x-feed: #000000;
+    --surface: #15171a;
+    --surface-2: #1b1e22;
+    --border: #2a2f36;
+    --rule: rgba(255, 255, 255, 0.12);
+    --rule-strong: rgba(255, 255, 255, 0.22);
+    --ink: #e9eaec;
+    --ink-2: #b7bcc2;
+    --ink-3: #7d848c;
+    /* 裁决色系（暗底过 AA，比霓虹克制） */
+    --v-true: #4cc66e;
+    --v-mostly-true: #54b89a;
+    --v-mixed: #e0b341;
+    --v-mostly-false: #e0853e;
+    --v-false: #e5565b;
+    --v-unverifiable: #8b939c;
+
+    --serif: "Newsreader", Georgia, "Songti SC", "Times New Roman", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--x-feed);
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 16px 80px;
+  }
+  .page { max-width: 620px; margin: 0 auto; }
+
+  .note {
+    font-size: 12.5px; color: var(--ink-3); line-height: 1.7;
+    border: 1px dashed var(--border); border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 28px;
+  }
+  .note b { color: var(--ink-2); font-weight: 600; }
+  .note .serif { font-family: var(--serif); }
+
+  /* —— 裁决色谱图例 —— */
+  .legend { margin: 0 0 30px; }
+  .legend h3 {
+    font-family: var(--serif); font-weight: 600; font-size: 13px;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3);
+    margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--rule);
+  }
+  .swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .sw { display: flex; align-items: baseline; gap: 8px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; border-left-width: 3px; }
+  .sw .cn { font-size: 14px; }
+  .sw .en { font-family: var(--serif); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+
+  /* —— 模拟 X 推文 —— */
+  .tweet {
+    border-top: 1px solid #16181c;
+    padding: 14px 4px 6px;
+  }
+  .tweet-head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #3a3f47, #23262b); flex: none; }
+  .tweet-meta { font-size: 14px; }
+  .tweet-meta .name { font-weight: 700; color: var(--ink); }
+  .tweet-meta .handle { color: var(--ink-3); }
+  .tweet-text { font-size: 15px; line-height: 1.5; color: var(--ink); margin: 2px 0 12px; }
+  .tweet-actions { display: flex; gap: 64px; color: var(--ink-3); font-size: 13px; padding: 4px 0 0; }
+
+  /* —— 核查卡（Editorial Authority）—— */
+  .fc {
+    margin: 12px 0 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    font-size: 14px;
+  }
+
+  /* masthead */
+  .fc-masthead {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 16px 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .fc-masthead .title {
+    font-family: var(--serif); font-weight: 600;
+    font-size: 11.5px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-2);
+  }
+  .fc-masthead .title .cn { letter-spacing: 0.08em; color: var(--ink-3); font-weight: 500; }
+  .fc-masthead .seal {
+    font-family: var(--serif); font-size: 10.5px; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+
+  /* verdict block */
+  .fc-verdict { padding: 16px 16px 0; }
+  .fc-verdict-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .fc-verdict-main { display: flex; align-items: baseline; gap: 12px; }
+  .fc-verdict-cn { font-family: var(--serif); font-size: 27px; font-weight: 600; line-height: 1; }
+  .fc-verdict-en { font-family: var(--serif); font-size: 12px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-3); }
+  .fc-conf { text-align: right; flex: none; }
+  .fc-conf .lbl { font-size: 10.5px; letter-spacing: 0.12em; color: var(--ink-3); text-transform: uppercase; display: block; margin-bottom: 1px; }
+  .fc-conf .num { font-family: var(--serif); font-size: 26px; font-weight: 600; line-height: 1; font-feature-settings: "lnum" 1, "tnum" 1; }
+  .fc-conf .num small { font-size: 14px; color: var(--ink-3); }
+
+  /* the stamp rule */
+  .fc-stamp { height: 2px; margin: 13px 16px 0; border-radius: 2px; }
+
+  .fc-summary {
+    padding: 12px 16px 16px;
+    font-size: 14px; line-height: 1.62; color: var(--ink-2);
+  }
+
+  /* claims */
+  .fc-claims { padding: 2px 16px 6px; }
+  .fc-claim { padding: 12px 0; border-top: 1px solid var(--rule); }
+  .fc-claim:first-child { border-top: none; }
+  .fc-claim-row { display: flex; gap: 11px; align-items: baseline; }
+  .fc-claim-no {
+    font-family: var(--serif); font-size: 15px; font-weight: 600; color: var(--ink-3);
+    padding-right: 11px; border-right: 1px solid var(--rule); line-height: 1.4; flex: none;
+    min-width: 18px; text-align: center;
+  }
+  .fc-claim-text { flex: 1; font-size: 14px; line-height: 1.5; color: var(--ink); }
+  .fc-claim-tag {
+    flex: none; font-size: 12.5px; white-space: nowrap; align-self: baseline;
+    font-weight: 600;
+  }
+  .fc-claim-tag .pct { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); font-weight: 400; margin-left: 4px; }
+
+  /* evidence */
+  .fc-ev { margin: 9px 0 0 29px; }
+  .fc-ev-item { border-left: 2px solid var(--rule-strong); padding: 1px 0 1px 12px; margin: 7px 0; }
+  .fc-ev-item.refutes { border-left-color: var(--v-false); }
+  .fc-ev-item.supports { border-left-color: var(--v-true); }
+  .fc-ev-head { font-size: 12.5px; }
+  .fc-ev-head .stance { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; padding-right: 6px; }
+  .fc-ev-head .stance.refutes { color: var(--v-false); }
+  .fc-ev-head .stance.supports { color: var(--v-true); }
+  .fc-ev-head a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--ink-3); }
+  .fc-ev-head a:hover { border-bottom-color: var(--ink); }
+  .fc-ev-head .arrow { color: var(--ink-3); }
+  .fc-ev-snippet { font-size: 12.5px; line-height: 1.55; color: var(--ink-3); margin-top: 3px; }
+
+  .fc-concern { margin: 8px 0 0 29px; font-size: 12px; color: var(--ink-3); font-style: italic; }
+  .fc-concern::before { content: "◆ "; font-style: normal; color: var(--v-mixed); }
+
+  /* footer */
+  .fc-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px; border-top: 1px solid var(--rule);
+    font-size: 11px; color: var(--ink-3);
+  }
+  .fc-foot .models { font-family: var(--mono); letter-spacing: 0.02em; }
+  .fc-foot .timing { font-family: var(--mono); }
+
+  .caption { font-size: 12px; color: var(--ink-3); margin: 18px 0 2px; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="note">
+    <b class="serif">FACT CHECK · P2 静态卡预览</b>　·　Editorial Authority 权威通讯社风 · 暗主题<br />
+    拉丁标题/裁决/分数 = 衬线 <b>Newsreader</b>；中文正文 = 系统无衬线；数据/来源 = 等宽 IBM Plex Mono。<br />
+    这是<b>静态长相</b>——P3 会给它加流式动效（骨架线脉动 / 逐条落定 / 分数 count-up / 重线画过）。证据此处默认展开以便审视，正式版可折叠。
+  </div>
+
+  <!-- 裁决色谱 -->
+  <div class="legend">
+    <h3>裁决色系 · Verdict Spectrum</h3>
+    <div class="swatches">
+      <div class="sw" style="border-left-color: var(--v-true);"><span class="cn" style="color:var(--v-true)">属实</span><span class="en">True</span></div>
+      <div class="sw" style="border-left-color: var(--v-mostly-true);"><span class="cn" style="color:var(--v-mostly-true)">基本属实</span><span class="en">Mostly True</span></div>
+      <div class="sw" style="border-left-color: var(--v-mixed);"><span class="cn" style="color:var(--v-mixed)">真假参半</span><span class="en">Mixed</span></div>
+      <div class="sw" style="border-left-color: var(--v-mostly-false);"><span class="cn" style="color:var(--v-mostly-false)">大体不实</span><span class="en">Mostly False</span></div>
+      <div class="sw" style="border-left-color: var(--v-false);"><span class="cn" style="color:var(--v-false)">不实</span><span class="en">False</span></div>
+      <div class="sw" style="border-left-color: var(--v-unverifiable);"><span class="cn" style="color:var(--v-unverifiable)">无法核实</span><span class="en">Unverifiable</span></div>
+    </div>
+  </div>
+
+  <p class="caption">示例一 · 大体不实（红卡，2 断言 + 证据 + 复核质疑）</p>
+
+  <!-- 推文 + 卡：失业率 -->
+  <div class="tweet">
+    <div class="tweet-head">
+      <div class="avatar"></div>
+      <div class="tweet-meta"><span class="name">财经观察</span> <span class="handle">@finance_watch · 2h</span></div>
+    </div>
+    <div class="tweet-text">2026 年全球失业率已降至历史最低点，数据来自国际劳工组织最新报告。形势一片大好。</div>
+    <div class="tweet-actions"><span>💬 18</span><span>🔁 42</span><span>♡ 230</span></div>
+
+    <div class="fc">
+      <div class="fc-masthead">
+        <div class="title">Fact&nbsp;Check <span class="cn">· 事实核查</span></div>
+        <div class="seal">Verified Analysis</div>
+      </div>
+
+      <div class="fc-verdict">
+        <div class="fc-verdict-row">
+          <div class="fc-verdict-main">
+            <span class="fc-verdict-cn" style="color: var(--v-mostly-false)">大体不实</span>
+            <span class="fc-verdict-en">Mostly False</span>
+          </div>
+          <div class="fc-conf">
+            <span class="lbl">可信度</span>
+            <span class="num" style="color: var(--v-mostly-false)">35<small>%</small></span>
+          </div>
+        </div>
+      </div>
+      <div class="fc-stamp" style="background: var(--v-mostly-false)"></div>
+
+      <div class="fc-summary">推文核心断言与公开数据相左：所引「全球失业率创历史新低」缺乏权威来源支撑，且与国际劳工组织最新统计矛盾；次要断言部分属实但被夸大。综合可信度偏低。</div>
+
+      <div class="fc-claims">
+        <div class="fc-claim">
+          <div class="fc-claim-row">
+            <span class="fc-claim-no">1</span>
+            <span class="fc-claim-text">2026 年全球失业率已降至历史最低点。</span>
+            <span class="fc-claim-tag" style="color: var(--v-false)">不实<span class="pct">31%</span></span>
+          </div>
+          <div class="fc-ev">
+            <div class="fc-ev-item refutes">
+              <div class="fc-ev-head"><span class="stance refutes">Refutes</span><a href="#">ILO World Employment 2026</a> <span class="arrow">↗</span></div>
+              <div class="fc-ev-snippet">国际劳工组织数据显示 2026 年全球失业率约为 5.1%，高于 2019 年的历史低位，并未创下新低。</div>
+            </div>
+            <div class="fc-ev-item supports">
+              <div class="fc-ev-head"><span class="stance supports">Supports</span><a href="#">某自媒体博文</a> <span class="arrow">↗</span></div>
+              <div class="fc-ev-snippet">声称失业率创新低，但未给出数据出处。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fc-claim">
+          <div class="fc-claim-row">
+            <span class="fc-claim-no">2</span>
+            <span class="fc-claim-text">该数据来自国际劳工组织最新报告。</span>
+            <span class="fc-claim-tag" style="color: var(--v-mixed)">真假参半<span class="pct">48%</span></span>
+          </div>
+          <div class="fc-concern">复核：ILO 确有年度报告，但报告结论与推文相反，属"张冠李戴"式引用。</div>
+        </div>
+      </div>
+
+      <div class="fc-foot">
+        <span class="models">haiku · sonnet ×2</span>
+        <span class="timing">来源 2 · 2.0s</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="caption">示例二 · 属实（绿卡，简洁，证据折叠态示意）</p>
+
+  <!-- 推文 + 卡：地球 -->
+  <div class="tweet">
+    <div class="tweet-head">
+      <div class="avatar" style="background: linear-gradient(135deg,#2d4a3a,#1c2b23)"></div>
+      <div class="tweet-meta"><span class="name">科普日报</span> <span class="handle">@sci_daily · 5h</span></div>
+    </div>
+    <div class="tweet-text">地球是圆的。月球绕地球转。</div>
+    <div class="tweet-actions"><span>💬 6</span><span>🔁 12</span><span>♡ 88</span></div>
+
+    <div class="fc">
+      <div class="fc-masthead">
+        <div class="title">Fact&nbsp;Check <span class="cn">· 事实核查</span></div>
+        <div class="seal">Verified Analysis</div>
+      </div>
+
+      <div class="fc-verdict">
+        <div class="fc-verdict-row">
+          <div class="fc-verdict-main">
+            <span class="fc-verdict-cn" style="color: var(--v-true)">属实</span>
+            <span class="fc-verdict-en">True</span>
+          </div>
+          <div class="fc-conf">
+            <span class="lbl">可信度</span>
+            <span class="num" style="color: var(--v-true)">99<small>%</small></span>
+          </div>
+        </div>
+      </div>
+      <div class="fc-stamp" style="background: var(--v-true)"></div>
+
+      <div class="fc-summary">推文核心断言与公开科学共识完全一致，两条均有权威来源支撑。</div>
+
+      <div class="fc-claims">
+        <div class="fc-claim">
+          <div class="fc-claim-row">
+            <span class="fc-claim-no">1</span>
+            <span class="fc-claim-text">地球是圆的。</span>
+            <span class="fc-claim-tag" style="color: var(--v-true)">属实<span class="pct">99%</span></span>
+          </div>
+        </div>
+        <div class="fc-claim">
+          <div class="fc-claim-row">
+            <span class="fc-claim-no">2</span>
+            <span class="fc-claim-text">月球绕地球转。</span>
+            <span class="fc-claim-tag" style="color: var(--v-true)">属实<span class="pct">98%</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="fc-foot">
+        <span class="models">haiku · sonnet ×2</span>
+        <span class="timing">来源 4 · 1.8s</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

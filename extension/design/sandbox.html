@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FactChecker · 真扩展沙盒（mock）</title>
+<style>
+  /* 模拟 X 暗色信息流，驱动真实 content.js（点「核查」走真实渲染路径） */
+  body { margin: 0; background: #000; color: #e7e9ea; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", system-ui, sans-serif; }
+  .col { max-width: 600px; margin: 0 auto; padding: 30px 16px 120px; }
+  .hint { color: #6b7178; font-size: 12px; margin-bottom: 16px; font-family: ui-monospace, monospace; }
+  article { border-bottom: 1px solid #16181c; padding: 14px 6px; }
+  .ahead { display: flex; gap: 11px; align-items: center; margin-bottom: 8px; }
+  .av { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg,#3a3f47,#1f2227); }
+  .nm { font-weight: 700; }
+  .hd { color: #6b7178; }
+  [data-testid="tweetText"] { font-size: 15.5px; line-height: 1.5; margin: 4px 0 12px; }
+  [role="group"] { display: flex; gap: 56px; color: #6b7178; font-size: 13px; align-items: center; }
+</style>
+</head>
+<body>
+<div class="col">
+  <div class="hint">真扩展沙盒 · 加载 ../dist/content.js（mock 构建）· 点每条推文的「✓ 核查」看真实卡片渲染</div>
+
+  <article>
+    <div class="ahead"><div class="av"></div><div><span class="nm">财经观察</span> <a href="/finance_watch" role="link" style="color:inherit;text-decoration:none"></a><span class="hd"> @finance_watch · 2h</span></div></div>
+    <a href="/finance_watch/status/1799999999999999999" style="display:none"></a>
+    <div data-testid="tweetText" lang="zh">2026 年全球失业率已降至历史最低点，数据来自国际劳工组织最新报告。形势一片大好。</div>
+    <div role="group"><span>💬 18</span><span>🔁 42</span><span>♡ 230</span></div>
+  </article>
+
+  <article>
+    <div class="ahead"><div class="av" style="background:linear-gradient(135deg,#244a39,#16271f)"></div><div><span class="nm">科普日报</span><span class="hd"> @sci_daily · 5h</span></div></div>
+    <a href="/sci_daily/status/1788888888888888888" style="display:none"></a>
+    <div data-testid="tweetText" lang="zh">地球是圆的。月球绕地球转。</div>
+    <div role="group"><span>💬 6</span><span>🔁 12</span><span>♡ 88</span></div>
+  </article>
+</div>
+
+<script src="../dist/content.js"></script>
+</body>
+</html>

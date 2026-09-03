@@ -14,5 +14,14 @@ dist/
 .env
 *.local
 
+# 用户反馈数据（本地采集，不入库）
+backend/data/
+
 # OS
 .DS_Store
+
+# 演示录屏（体积大，不入库）
+*.mp4
+
+# 上架打包产物
+extension/*.zip
